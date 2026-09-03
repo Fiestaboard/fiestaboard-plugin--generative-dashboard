@@ -111,10 +111,25 @@ need different compositions.
 Per key: `last_values`, `previous_values`, `board_lines`, `generated_at`,
 `degraded_level`, `reason`, `headline`.
 
-Process-wide: an `_inflight` set of board keys under a lock, a `_stopped` flag
-set by `cleanup()`, and a `_config_generation` counter bumped by
-`on_config_change()` so a worker started under old settings discards its
-result instead of swapping it in.
+Process-wide: an `_inflight` set of board keys, a `_stopped` flag set by
+`cleanup()`, and a `_config_generation` counter bumped by `on_config_change()`
+so a worker started under old settings discards its result instead of swapping
+it in.
+
+The lock is an `RLock`, and it covers three things rather than just the
+in-flight set:
+
+- **The generation decision.** Checking the gate, advancing the snapshot, and
+  spawning happen as one atomic step. Two render threads on the same board
+  would otherwise both advance the snapshot, and the second would overwrite
+  the pre-change values the prompt needs to explain what moved.
+- **The worker's swap.** `_run` writes tiles, banner, prose, headline and
+  reason together.
+- **The reader's snapshot.** `_compose` reads those fields as a set, so a
+  render can never pair a new tile list with an old banner.
+
+It is reentrant because the decision holds the lock across `_spawn`, which
+takes it again to claim the in-flight slot.
 
 ### Reentrancy
 
@@ -256,6 +271,17 @@ A response failing validation is retried once with a stricter, error-specific
 instruction. A second failure drops to the failure ladder for that cycle; the
 previously displayed board remains up in the meantime.
 
+A *transport* failure is not retried — a dead endpoint will still be dead a
+millisecond later.
+
+Failure sets a `stale` flag on the board state. Grid mode ignores it, because
+it re-renders live values against the last tile choice regardless. Prose mode
+honours it: frozen text describing numbers that have since moved is worse than
+a plain grid of current ones, so a stale board falls through to the
+deterministic grid. The flag is set only on an actual failure, never while a
+worker is merely in flight, so the board does not change layout for the few
+seconds a generation takes.
+
 ## Failure ladder
 
 Levels are numbered by how much of the dashboard survives, 0 being intact.
@@ -289,6 +315,11 @@ Level 2, on a Flagship:
 
    LAST GOOD DATA 14:32
 ```
+
+The message is chosen once per outage *episode*, not per render. With
+`live_data: true` the board redraws constantly, so rotating the joke every
+cycle would produce exactly the flicker this plugin exists to prevent. A new
+episode gets a new message.
 
 Drawn from a small pool — the hamsters, someone unplugged the router, the
 numbers are taking a nap, lost contact with the outside world — all uppercase,
@@ -411,7 +442,7 @@ therefore never require an API key and never call the LLM.
 
 | Variable | Type | Notes |
 | --- | --- | --- |
-| `rows` | array of string | The composed board, one entry per row |
+| `rows` | array of objects | The composed board, one entry per row, read as `rows.0.text` |
 | `prose` | string | Prose text; empty in grid mode |
 | `headline` | string | Single most important stat, for use on other pages |
 | `reason` | string | Why it last regenerated; also the debugging window |
@@ -420,7 +451,14 @@ therefore never require an API key and never call the LLM.
 | `generated_at` | string | ISO timestamp |
 | `model` | string | Model that composed it |
 
-`get_formatted_display()` returns the exact lines for standalone page use.
+`get_formatted_display()` returns the exact lines for standalone page use,
+and `PluginResult.formatted_lines` carries them on every fetch. That is the
+primary path: this plugin takes the whole board.
+
+`rows` is a list of one-field objects rather than plain strings because core's
+`variables.arrays` schema models lists of objects and requires `item_fields`
+(`manifest.py:1157`). The template engine indexes with dots, not brackets, so
+the reference is `{{generative_dashboard.rows.0.text}}`.
 
 ## Testing
 

@@ -234,3 +234,40 @@ def test_a_repeated_spawn_for_one_board_is_ignored_while_in_flight(plugin, monke
     spawn(plugin, *args)
     spawn(plugin, *args)
     assert len(started) == 1
+
+
+def test_the_outage_message_does_not_change_on_every_render(plugin, monkeypatch):
+    # live_data means fetch_data runs on every render. Rotating the joke each
+    # time would make the outage screen flicker — the exact noise we avoid.
+    _values(monkeypatch, {})
+    first = _fetch(plugin).formatted_lines
+    for _ in range(5):
+        assert _fetch(plugin).formatted_lines == first
+
+
+def test_a_new_outage_episode_picks_a_new_message(plugin, monkeypatch):
+    _values(monkeypatch, {})
+    first = _fetch(plugin).formatted_lines
+    _values(monkeypatch, VALUES)
+    _fetch(plugin)  # recovered
+    _values(monkeypatch, {})
+    assert _fetch(plugin).formatted_lines != first
+
+
+def test_concurrent_fetches_do_not_lose_the_previous_snapshot(plugin, monkeypatch):
+    # Two render threads hitting the same board must not overwrite the
+    # pre-change snapshot with the post-change one; the prompt needs the
+    # "was" value to explain what moved.
+    _fetch(plugin)
+    state = plugin._states["flagship"]
+    state.tiles = [TileSpec("air.aqi", "AQI", None)]
+    state.last_generated = 0.0
+    captured = []
+    monkeypatch.setattr(
+        plugin, "_spawn",
+        lambda *a, **k: captured.append(a[5]),  # the `previous` argument
+    )
+    _values(monkeypatch, {"air.aqi": "168", "wx.temp": "61F"})
+    _fetch(plugin)
+    _fetch(plugin)
+    assert captured[0]["air.aqi"] == "68"

@@ -60,6 +60,7 @@ class BoardState:
     generated_at: str = ""
     last_good: str = ""
     last_generated: float = 0.0
+    outage_index: int = -1
     failures: int = 0
     stale: bool = False
     lines: list[str] = field(default_factory=list)
@@ -71,7 +72,9 @@ class GenerativeDashboardPlugin(PluginBase):
     def __init__(self, manifest: dict[str, Any]) -> None:
         super().__init__(manifest)
         self._states: dict[str, BoardState] = {}
-        self._lock = threading.Lock()
+        # Reentrant: the generation decision holds the lock across _spawn,
+        # which takes it again to claim the in-flight slot.
+        self._lock = threading.RLock()
         self._inflight: set[str] = set()
         self._stopped = False
         self._config_generation = 0
@@ -187,10 +190,17 @@ class GenerativeDashboardPlugin(PluginBase):
 
         values = catalog.read_values(watchlist, self.board, self.plugin_id)
         if not values:
-            self._outage_index += 1
-            lines = fallback.outage_lines(geo, state.last_good or None, self._outage_index)
+            # Pick the message once per outage, not once per render: with
+            # live_data the board redraws constantly, and a joke that changes
+            # every few seconds is the noise this plugin exists to avoid.
+            if state.outage_index < 0:
+                with self._lock:
+                    self._outage_index += 1
+                    state.outage_index = self._outage_index
+            lines = fallback.outage_lines(geo, state.last_good or None, state.outage_index)
             return self._result(state, lines, "no_data", 0)
 
+        state.outage_index = -1
         state.last_good = datetime.now().strftime("%H:%M")
 
         changed = gate.material_changes(
@@ -199,14 +209,20 @@ class GenerativeDashboardPlugin(PluginBase):
             self._thresholds(config),
             float(config.get("default_threshold_pct", 5) or 5),
         )
-        if (changed or not (state.tiles or state.prose)) and self._may_generate(key, state, config):
-            state.previous = dict(state.values)
-            state.values = dict(values)
-            state.last_generated = time.monotonic()
-            self._spawn(
-                key, geo, config, watchlist, dict(values), dict(state.previous),
-                list(state.lines), self._config_generation,
-            )
+        # Decide and record atomically. Two render threads on one board must
+        # not both advance the snapshot, or the second erases the "was" value
+        # the prompt needs to explain what moved.
+        with self._lock:
+            if (changed or not (state.tiles or state.prose)) and self._may_generate(
+                key, state, config
+            ):
+                state.previous = dict(state.values)
+                state.values = dict(values)
+                state.last_generated = time.monotonic()
+                self._spawn(
+                    key, geo, config, watchlist, dict(values), dict(state.previous),
+                    list(state.lines), self._config_generation,
+                )
 
         lines, degraded, stat_count = self._compose(state, geo, config, values, watchlist)
         state.lines = lines
@@ -240,18 +256,26 @@ class GenerativeDashboardPlugin(PluginBase):
         """Build the lines to show, using live values wherever possible."""
         use_color = bool(config.get("use_color", True))
 
-        if config.get("output_mode", "grid") == "prose" and state.prose and not state.stale:
-            return wrap_center(state.prose, geo.rows, geo.cols), state.degraded, 0
+        # Read the worker-owned fields as one consistent snapshot: _run swaps
+        # them together, and rendering half of an old composition against half
+        # of a new one would show a board that never existed.
+        with self._lock:
+            specs = list(state.tiles)
+            banner, prose = state.banner, state.prose
+            stale, degraded = state.stale, state.degraded
 
-        if state.tiles:
+        if config.get("output_mode", "grid") == "prose" and prose and not stale:
+            return wrap_center(prose, geo.rows, geo.cols), degraded, 0
+
+        if specs:
             tiles = [
                 Tile(label=spec.label, value=values[spec.ref], color=spec.color)
-                for spec in state.tiles
+                for spec in specs
                 if spec.ref in values
             ]
             if tiles:
-                lines = render_grid(tiles, geo, banner=state.banner, use_color=use_color)
-                return lines, state.degraded, len(tiles)
+                lines = render_grid(tiles, geo, banner=banner, use_color=use_color)
+                return lines, degraded, len(tiles)
 
         tiles = fallback.deterministic_tiles(
             watchlist, self._labels(config), values, self._pinned(config)
