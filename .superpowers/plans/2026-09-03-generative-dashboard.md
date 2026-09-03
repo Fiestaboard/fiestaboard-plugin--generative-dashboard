@@ -110,8 +110,8 @@ def test_cell_width_of_plain_text_is_its_length():
 
 
 def test_truncate_never_splits_a_color_marker():
-    # Cutting at 3 cells would land inside the marker; drop it whole.
-    assert truncate("{red}AQI", 3) == "AQI"
+    # Three cells: the marker plus two letters. The marker is never cut in half.
+    assert truncate("{red}AQI", 3) == "{red}AQ"
 
 
 def test_truncate_keeps_marker_when_it_fits():
