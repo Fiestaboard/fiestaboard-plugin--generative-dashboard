@@ -77,3 +77,22 @@ changed than show you a table.
 Prose is stricter with itself: the model may only use numbers exactly as they
 were given to it, never computed or rounded. A sentence that invents a figure is
 rejected and the board falls back rather than showing you something wrong.
+
+### Do not ask prose mode for percentages
+
+This is a real trap, verified against a local Gemma 4. Put something like
+*"always state the percentage change"* in **Extra Prompt Instructions** and the
+model will happily oblige:
+
+```
+AQI ROSE 441.9354838709677%. KEEP WINDOWS SHUT.
+```
+
+That number was computed, not given, so every response is rejected and the
+board falls back to the plain grid *permanently* — a dashboard that looks
+broken for a reason buried in a settings box.
+
+The guard is doing its job: 441.9354838709677 is both wrong to show on a
+split-flap board and a number nobody handed the model. But if you want change
+expressed as a percentage, the right move is a per-variable note explaining the
+significance ("under 500 is a problem"), not an instruction to do arithmetic.
