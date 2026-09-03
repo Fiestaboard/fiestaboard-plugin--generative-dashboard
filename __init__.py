@@ -265,7 +265,10 @@ class GenerativeDashboardPlugin(PluginBase):
             available=True,
             formatted_lines=lines,
             data={
-                "rows": lines,
+                # Arrays are lists of objects in core's variable schema,
+                # reachable from a template as ``rows.0.text``. The plain
+                # strings go out via ``formatted_lines``.
+                "rows": [{"text": line} for line in lines],
                 "prose": state.prose,
                 "headline": state.headline,
                 "reason": state.reason,

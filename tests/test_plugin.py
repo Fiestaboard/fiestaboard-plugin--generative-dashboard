@@ -44,20 +44,20 @@ def _spy_spawn(plugin, monkeypatch):
 def test_unconfigured_watchlist_shows_the_setup_message(plugin):
     plugin.config = dict(plugin.config, watchlist=[])
     result = _fetch(plugin)
-    assert "SETTINGS" in " ".join(result.data["rows"])
+    assert "SETTINGS" in " ".join(result.formatted_lines)
     assert result.data["degraded"] == "unconfigured"
 
 
 def test_cold_start_renders_a_deterministic_grid_without_any_llm_call(plugin):
     result = _fetch(plugin)
-    joined = " ".join(result.data["rows"])
+    joined = " ".join(result.formatted_lines)
     assert "68" in joined and "61F" in joined
     assert result.data["degraded"] == "no_llm"
 
 
 def test_rows_match_the_board_height(plugin):
-    assert len(_fetch(plugin, FLAGSHIP).data["rows"]) == 6
-    assert len(_fetch(plugin, NOTE).data["rows"]) == 3
+    assert len(_fetch(plugin, FLAGSHIP).formatted_lines) == 6
+    assert len(_fetch(plugin, NOTE).formatted_lines) == 3
 
 
 def test_formatted_lines_are_offered_to_core(plugin):
@@ -68,13 +68,13 @@ def test_no_watchlist_values_shows_humor_and_a_timestamp(plugin, monkeypatch):
     _values(monkeypatch, {})
     result = _fetch(plugin)
     assert result.data["degraded"] == "no_data"
-    assert "NO DATA YET" in " ".join(result.data["rows"])
+    assert "NO DATA YET" in " ".join(result.formatted_lines)
 
 
 def test_a_board_with_data_reports_when_data_was_last_good(plugin, monkeypatch):
     _fetch(plugin)
     _values(monkeypatch, {})
-    assert "LAST GOOD DATA" in " ".join(_fetch(plugin).data["rows"])
+    assert "LAST GOOD DATA" in " ".join(_fetch(plugin).formatted_lines)
 
 
 def test_each_board_size_keeps_its_own_composition(plugin):
@@ -155,14 +155,14 @@ def test_live_values_are_re_rendered_between_generations(plugin, monkeypatch):
     _values(monkeypatch, {"air.aqi": "999", "wx.temp": "61F"})
     result = _fetch(plugin)
     # The model has not run again, but the number on the board is current.
-    assert "999" in " ".join(result.data["rows"])
+    assert "999" in " ".join(result.formatted_lines)
 
 
 def test_prose_is_shown_when_the_model_has_produced_some(plugin):
     plugin.config = dict(plugin.config, output_mode="prose")
     _fetch(plugin)
     plugin._states["flagship"].prose = "ALL QUIET TODAY."
-    assert "ALL QUIET" in " ".join(_fetch(plugin).data["rows"])
+    assert "ALL QUIET" in " ".join(_fetch(plugin).formatted_lines)
 
 
 def test_stale_prose_gives_way_to_a_grid_of_live_values(plugin, monkeypatch):
@@ -172,7 +172,7 @@ def test_stale_prose_gives_way_to_a_grid_of_live_values(plugin, monkeypatch):
     state.prose = "AQI IS 68."
     state.stale = True  # a generation failed after the numbers moved
     _values(monkeypatch, {"air.aqi": "999", "wx.temp": "61F"})
-    joined = " ".join(_fetch(plugin).data["rows"])
+    joined = " ".join(_fetch(plugin).formatted_lines)
     assert "999" in joined and "AQI IS 68" not in joined
 
 
@@ -213,3 +213,24 @@ def test_config_change_discards_an_in_flight_result(plugin):
 def test_cleanup_stops_further_swaps(plugin):
     plugin.cleanup()
     assert plugin._stopped
+
+
+def test_rows_are_emitted_in_the_shape_the_manifest_declares(plugin):
+    # variables.arrays models lists of objects; templates read rows.0.text.
+    rows = _fetch(plugin).data["rows"]
+    assert all(set(row) == {"text"} for row in rows)
+    assert [r["text"] for r in rows] == _fetch(plugin).formatted_lines
+
+
+def test_a_repeated_spawn_for_one_board_is_ignored_while_in_flight(plugin, monkeypatch):
+    started = []
+    monkeypatch.setattr(
+        "threading.Thread",
+        lambda **kw: type("T", (), {"start": lambda self: started.append(kw["name"])})(),
+    )
+    # The fixture stubs _spawn, so reach past it to the real implementation.
+    spawn = GenerativeDashboardPlugin._spawn
+    args = ("flagship", None, plugin.config, [], {}, {}, [], 0)
+    spawn(plugin, *args)
+    spawn(plugin, *args)
+    assert len(started) == 1

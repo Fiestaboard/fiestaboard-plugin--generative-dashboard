@@ -1,0 +1,309 @@
+{
+  "id": "generative_dashboard",
+  "name": "Generative Dashboard",
+  "version": "1.0.0",
+  "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
+  "author": "FiestaBoard Team",
+  "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
+  "documentation": "README.md",
+  "icon": "layout-dashboard",
+  "category": "data",
+  "live_data": true,
+  "min_refresh_seconds": 120,
+  "fiestaboard_version": ">=2.10.0",
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "Enable Generative Dashboard",
+        "default": false
+      },
+      "watchlist": {
+        "type": "array",
+        "title": "Watched Variables",
+        "description": "The pool the dashboard chooses from. Watch more than fits on the board - picking what matters is the point.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "default": [],
+        "ui:widget": "remote-options",
+        "ui:options": {
+          "options_id": "variables",
+          "multiple": true,
+          "searchable": true,
+          "server_search": true,
+          "reorderable": true,
+          "labels_field": "labels",
+          "cache_seconds": 30,
+          "placeholder": "Search variables from your enabled plugins"
+        }
+      },
+      "labels": {
+        "type": "object",
+        "title": "Display Labels",
+        "description": "Short board label per variable. Filled in by the picker.",
+        "default": {}
+      },
+      "pinned": {
+        "type": "array",
+        "title": "Always Show",
+        "description": "Variables that must appear even on a quiet day.",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "ui:widget": "remote-options",
+        "ui:options": {
+          "options_id": "watched",
+          "multiple": true,
+          "searchable": true,
+          "depends_on": [
+            "watchlist"
+          ],
+          "placeholder": "Pick from your watched variables"
+        }
+      },
+      "notes": {
+        "type": "object",
+        "title": "Variable Notes",
+        "description": "What a variable means, per variable - e.g. 'over 100 is unhealthy'. This is what turns the ranking from a guess into a judgement.",
+        "default": {}
+      },
+      "thresholds": {
+        "type": "object",
+        "title": "Per-Variable Sensitivity",
+        "description": "Percent change needed before a variable counts as having moved. Overrides the global default.",
+        "default": {}
+      },
+      "output_mode": {
+        "type": "string",
+        "title": "Output Mode",
+        "description": "grid lays stats out in tiles; prose writes a short sentence about what changed.",
+        "enum": [
+          "grid",
+          "prose"
+        ],
+        "default": "grid"
+      },
+      "api_base_url": {
+        "type": "string",
+        "title": "API Base URL",
+        "description": "Any OpenAI-compatible chat completions endpoint (e.g. https://api.openai.com/v1, or http://localhost:11434/v1 for Ollama).",
+        "default": "https://api.openai.com/v1"
+      },
+      "api_key": {
+        "type": "string",
+        "title": "API Key",
+        "description": "Use any value for local endpoints that do not check it.",
+        "secret": true
+      },
+      "model": {
+        "type": "string",
+        "title": "Model",
+        "default": "gpt-4o-mini"
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "description": "Low values keep the layout steady. This is layout, not art.",
+        "default": 0.3,
+        "minimum": 0,
+        "maximum": 2
+      },
+      "refresh_seconds": {
+        "type": "integer",
+        "title": "Minimum Seconds Between Generations",
+        "description": "A floor, not a schedule. Nothing is generated unless a watched value has actually moved.",
+        "default": 300,
+        "minimum": 120
+      },
+      "default_threshold_pct": {
+        "type": "number",
+        "title": "Change Sensitivity (%)",
+        "description": "How far a number must move before the board is worth redrawing.",
+        "default": 5,
+        "minimum": 0,
+        "maximum": 100
+      },
+      "use_color": {
+        "type": "boolean",
+        "title": "Colour Accents",
+        "description": "Let the model flag an outlier with a single coloured tile.",
+        "default": true
+      },
+      "extra_instructions": {
+        "type": "string",
+        "title": "Extra Prompt Instructions",
+        "description": "Appended to the system prompt, e.g. 'favour network stats'.",
+        "format": "textarea",
+        "default": ""
+      }
+    },
+    "required": [
+      "api_key"
+    ]
+  },
+  "env_vars": [
+    {
+      "name": "GENERATIVE_DASHBOARD_ENABLED",
+      "required": false,
+      "description": "Enable the plugin",
+      "default": "false"
+    },
+    {
+      "name": "GENERATIVE_DASHBOARD_API_KEY",
+      "required": false,
+      "description": "API key for the endpoint"
+    },
+    {
+      "name": "GENERATIVE_DASHBOARD_API_BASE_URL",
+      "required": false,
+      "description": "Chat completions base URL",
+      "default": "https://api.openai.com/v1"
+    },
+    {
+      "name": "GENERATIVE_DASHBOARD_MODEL",
+      "required": false,
+      "description": "Model name",
+      "default": "gpt-4o-mini"
+    },
+    {
+      "name": "GENERATIVE_DASHBOARD_OUTPUT_MODE",
+      "required": false,
+      "description": "grid or prose",
+      "default": "grid"
+    }
+  ],
+  "variables": {
+    "groups": {
+      "display": {
+        "label": "Display"
+      },
+      "meta": {
+        "label": "Metadata"
+      }
+    },
+    "simple": {
+      "prose": {
+        "description": "The generated sentence, in prose mode",
+        "type": "string",
+        "max_length": 200,
+        "group": "display",
+        "example": "AQI ROSE FROM 31 TO 168."
+      },
+      "headline": {
+        "description": "The single most important stat right now",
+        "type": "string",
+        "max_length": 40,
+        "group": "display",
+        "example": "AQI 168"
+      },
+      "reason": {
+        "description": "Why the board last changed",
+        "type": "string",
+        "max_length": 120,
+        "group": "meta",
+        "example": "AQI ROSE 31 TO 168"
+      },
+      "stat_count": {
+        "description": "How many stats are currently shown",
+        "type": "number",
+        "max_length": 3,
+        "group": "meta",
+        "example": "8"
+      },
+      "degraded": {
+        "description": "Empty when healthy, otherwise why the board is degraded",
+        "type": "string",
+        "max_length": 20,
+        "group": "meta",
+        "example": "no_llm"
+      },
+      "generated_at": {
+        "description": "When the composition was last generated",
+        "type": "string",
+        "max_length": 20,
+        "group": "meta",
+        "example": "2026-09-03T14:30:00"
+      },
+      "model": {
+        "description": "Model that composed the board",
+        "type": "string",
+        "max_length": 40,
+        "group": "meta",
+        "example": "gpt-4o-mini"
+      }
+    },
+    "arrays": {
+      "rows": {
+        "label_field": "text",
+        "item_fields": [
+          "text"
+        ]
+      }
+    }
+  },
+  "demo": {
+    "flagship": {
+      "name": "Generative Dashboard (Flagship)",
+      "template": [
+        "{{generative_dashboard.rows.0.text}}",
+        "{{generative_dashboard.rows.1.text}}",
+        "{{generative_dashboard.rows.2.text}}",
+        "{{generative_dashboard.rows.3.text}}",
+        "{{generative_dashboard.rows.4.text}}",
+        "{{generative_dashboard.rows.5.text}}"
+      ],
+      "line_metadata": [
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        }
+      ]
+    },
+    "note": {
+      "name": "Generative Dashboard (Note)",
+      "template": [
+        "{{generative_dashboard.rows.0.text}}",
+        "{{generative_dashboard.rows.1.text}}",
+        "{{generative_dashboard.rows.2.text}}"
+      ],
+      "line_metadata": [
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        },
+        {
+          "alignment": "left",
+          "wrap": false
+        }
+      ]
+    }
+  }
+}
