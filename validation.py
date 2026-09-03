@@ -1,0 +1,168 @@
+"""Validating model output before it is allowed near the board.
+
+Grid mode cannot produce a wrong number: the model names a variable and the
+plugin substitutes the value it already fetched. Prose mode can, because the
+numbers live inside the sentence — so every numeric token in the text must
+appear verbatim in the supplied values, and the prompt tells the model not to
+compute, round, or abbreviate.
+"""
+
+import re
+from dataclasses import dataclass
+
+from .catalog import default_label
+from .charset import VALID_COLORS, sanitize, truncate
+from .layout import Geometry, Tile, fits
+
+# A run of digits with internal separators: 42, 94,120, 1.25
+_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+class ValidationError(Exception):
+    """The model's answer cannot be shown, and should be retried or dropped."""
+
+
+@dataclass(frozen=True)
+class GridResult:
+    tiles: list[Tile]
+    refs: list[str]  # source ref per tile, parallel to ``tiles``
+    banner: str
+    headline: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ProseResult:
+    text: str
+    headline: str
+    reason: str
+
+
+def extract_numbers(text: str) -> list[str]:
+    """Every numeric token in *text*, with separators preserved."""
+    return _NUMBER_RE.findall(text)
+
+
+def allowed_numbers(current: dict[str, str], previous: dict[str, str]) -> set[str]:
+    """Numbers the model is permitted to write: those it was given."""
+    allowed: set[str] = set()
+    for source in (current, previous):
+        for value in source.values():
+            allowed.update(extract_numbers(str(value)))
+    return allowed
+
+
+def _as_dict(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise ValidationError("Response was not a JSON object")
+    return payload
+
+
+def validate_grid(
+    payload: object,
+    *,
+    watchlist: list[str],
+    pinned: list[str],
+    values: dict[str, str],
+    labels: dict[str, str],
+    geo: Geometry,
+    use_color: bool,
+) -> GridResult:
+    """Turn a model response into placeable tiles, or raise."""
+    data = _as_dict(payload)
+    raw_tiles = data.get("tiles")
+    if not isinstance(raw_tiles, list):
+        raise ValidationError("Response had no 'tiles' list")
+
+    watched = set(watchlist)
+    banner = truncate(sanitize(str(data.get("banner") or "")), geo.cols)
+    body_rows = geo.rows - (1 if banner else 0)
+    capacity = max(1, geo.tile_columns * body_rows)
+
+    chosen: list[tuple[str, Tile]] = []
+    seen: set[str] = set()
+    for entry in raw_tiles:
+        if not isinstance(entry, dict):
+            continue
+        ref = str(entry.get("variable") or "")
+        if ref not in watched or ref in seen or ref not in values:
+            continue
+        color = str(entry.get("color") or "").lower()
+        chosen.append((
+            ref,
+            Tile(
+                label=(
+                    labels.get(ref)
+                    or sanitize(str(entry.get("label") or ""))
+                    or default_label(ref)
+                ),
+                value=values[ref],
+                color=color if (use_color and color in VALID_COLORS) else None,
+            ),
+        ))
+        seen.add(ref)
+
+    chosen = chosen[:capacity]
+
+    # Pins are a promise; honour them even when the model forgot.
+    pinned_refs = [r for r in pinned if r in values and r in watched]
+    for ref in pinned_refs:
+        if ref in seen:
+            continue
+        if len(chosen) >= capacity:
+            for index in range(len(chosen) - 1, -1, -1):
+                if chosen[index][0] not in pinned_refs:
+                    chosen.pop(index)
+                    break
+            else:
+                break
+        chosen.append((
+            ref,
+            Tile(label=labels.get(ref) or default_label(ref), value=values[ref]),
+        ))
+        seen.add(ref)
+
+    if not chosen:
+        raise ValidationError("No usable tiles in response")
+
+    return GridResult(
+        tiles=[tile for _, tile in chosen],
+        refs=[ref for ref, _ in chosen],
+        banner=banner,
+        headline=sanitize(str(data.get("headline") or "")),
+        reason=sanitize(str(data.get("reason") or "")),
+    )
+
+
+def validate_prose(
+    payload: object,
+    *,
+    geo: Geometry,
+    current: dict[str, str],
+    previous: dict[str, str],
+) -> ProseResult:
+    """Check a generated sentence for fit, charset, and invented numbers."""
+    data = _as_dict(payload)
+    raw = data.get("text")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValidationError("Response had no 'text'")
+
+    text = sanitize(raw).strip()
+    if not text:
+        raise ValidationError("Text was empty after removing unrenderable characters")
+
+    allowed = allowed_numbers(current, previous)
+    for token in extract_numbers(text):
+        if token not in allowed:
+            raise ValidationError(
+                f"Text contains the number {token}, which was not supplied"
+            )
+
+    if not fits(text, geo.rows, geo.cols):
+        raise ValidationError(f"Text does not fit {geo.rows} rows of {geo.cols}")
+
+    return ProseResult(
+        text=text,
+        headline=sanitize(str(data.get("headline") or "")),
+        reason=sanitize(str(data.get("reason") or "")),
+    )
