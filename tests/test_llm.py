@@ -258,3 +258,16 @@ def test_the_prompt_explains_color_as_intensity_not_just_change():
     lowered = system.lower()
     assert "green" in lowered and "red" in lowered
     assert "banner_color" in system
+
+
+def test_the_prompt_forbids_showing_an_identifier_on_its_own():
+    # A ticker with no price, a station name with no arrival time.
+    system, _ = _prompt(build_grid_prompt)
+    lowered = system.lower()
+    assert "on its own" in lowered or "alone" in lowered
+    assert "symbol" in lowered or "identifies" in lowered
+
+
+def test_the_prompt_asks_for_restraint_with_color():
+    system, _ = _prompt(build_grid_prompt, use_color=True)
+    assert "at most" in system.lower()
