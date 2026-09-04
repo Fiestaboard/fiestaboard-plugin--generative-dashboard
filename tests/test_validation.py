@@ -332,9 +332,10 @@ def test_a_header_with_one_giant_word_still_fits():
 
 
 def test_a_label_that_is_a_prefix_of_its_value_is_blanked():
-    # "ALPHABE ALPHABET INC." — the truncated label echoed the value anyway.
-    payload = {"tiles": [{"label": "ALPHABET", "variable": "st.name"}]}
-    result = _validate(payload, watchlist=["st.name"], values={"st.name": "ALPHABET INC."})
+    # "HEAVY HEAVY RAIN" — a truncated label echoing a reading is blanked.
+    # (Identifier refs like st.name are absorbed or dropped instead.)
+    payload = {"tiles": [{"label": "HEAVY", "variable": "wx.summary"}]}
+    result = _validate(payload, watchlist=["wx.summary"], values={"wx.summary": "HEAVY RAIN"})
     assert result.tiles[0].label == ""
 
 
@@ -342,3 +343,81 @@ def test_a_numeric_value_keeps_a_coincidental_label(  ):
     payload = {"tiles": [{"label": "NOW", "variable": "wx.t", "suffix": "F"}]}
     result = _validate(payload, watchlist=["wx.t"], values={"wx.t": "62"})
     assert result.tiles[0].label == "NOW"
+
+
+def test_an_identifier_tile_is_absorbed_as_its_companions_label():
+    # Gemma keeps giving GOOG a tile despite instructions; the fix is
+    # deterministic. A digitless tile whose ref names an identifier becomes
+    # the label of its plugin's first numeric tile.
+    payload = {"tiles": [
+        {"label": "GOOG", "variable": "stocks.symbol"},
+        {"label": "CHA", "variable": "stocks.change_pct"},
+    ]}
+    result = _validate(
+        payload,
+        watchlist=["stocks.symbol", "stocks.change_pct"],
+        values={"stocks.symbol": "GOOG", "stocks.change_pct": "-4.10"},
+    )
+    assert [t.label for t in result.tiles] == ["GOOG"]
+    assert result.tiles[0].value == "-4.10"
+    assert "stocks.symbol" not in result.refs
+
+
+def test_an_identifier_with_no_companion_is_dropped_not_stranded():
+    payload = {"tiles": [{"label": "GOOG", "variable": "stocks.symbol"},
+                         {"label": "AQI", "variable": "air.aqi"}]}
+    result = _validate(
+        payload, watchlist=["stocks.symbol", "air.aqi"],
+        values={"stocks.symbol": "GOOG", "air.aqi": "168"},
+    )
+    assert result.refs == ["air.aqi"]
+
+
+def test_condition_text_is_not_mistaken_for_an_identifier():
+    # weather.condition "RAIN" is a reading, not a name — absorbing it as
+    # the temperature's label would caption 62F with the word RAIN.
+    payload = {"tiles": [
+        {"label": "SKY", "variable": "wx.condition"},
+        {"label": "NOW", "variable": "wx.temperature"},
+    ]}
+    result = _validate(
+        payload, watchlist=["wx.condition", "wx.temperature"],
+        values={"wx.condition": "RAIN", "wx.temperature": "62"},
+    )
+    assert len(result.tiles) == 2
+
+
+def test_units_are_inferred_from_the_description_when_the_model_forgets():
+    payload = {"tiles": [
+        {"label": "DELAY", "variable": "tr.delay"},
+        {"label": "PRICE", "variable": "st.price"},
+    ]}
+    result = _validate(
+        payload, watchlist=["tr.delay", "st.price"],
+        values={"tr.delay": "18", "st.price": "339.08"},
+        descriptions={"tr.delay": "Line delay in minutes",
+                      "st.price": "Current share price in USD"},
+    )
+    assert result.tiles[0].value == "18MIN"
+    assert result.tiles[1].value == "$339.08"
+
+
+def test_the_models_own_affix_wins_over_inference():
+    payload = {"tiles": [{"label": "D", "variable": "tr.delay", "suffix": "M"}]}
+    result = _validate(
+        payload, watchlist=["tr.delay"], values={"tr.delay": "18"},
+        descriptions={"tr.delay": "Line delay in minutes"},
+    )
+    assert result.tiles[0].value == "18M"
+
+
+def test_at_most_three_tiles_keep_their_color():
+    # "At most three" is a promise to the reader, so the validator enforces
+    # it: the first three colored tiles keep their dots, the rest go plain.
+    payload = {"tiles": [
+        {"label": f"L{i}", "variable": f"p.v{i}", "color": "red"} for i in range(5)
+    ]}
+    values = {f"p.v{i}": str(i) for i in range(5)}
+    result = _validate(payload, watchlist=list(values), values=values)
+    assert sum(1 for t in result.tiles if t.color) == 3
+    assert [t.color for t in result.tiles[:3]] == ["red", "red", "red"]

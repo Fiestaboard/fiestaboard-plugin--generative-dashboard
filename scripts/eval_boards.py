@@ -170,13 +170,11 @@ def judge_grid(result, lines, scenario, geo):
         )
     else:
         checks["no_title_repeat"] = True
-    for ident in scenario["identifiers"]:
-        if ident in result.refs:
-            companions = [r for r in result.refs if r != ident and r.split(".")[0] == ident.split(".")[0]]
-            checks["no_orphan_identifier"] = bool(companions)
-            break
-    else:
-        checks["no_orphan_identifier"] = True
+    # The rule tightened: an identifier is never a tile at all — it becomes
+    # the label of its companion stat or part of the title.
+    checks["no_orphan_identifier"] = not any(
+        ident in result.refs for ident in scenario["identifiers"]
+    )
     themes = Counter(r.split(".")[0] for r in result.refs)
     checks["coherent_theme"] = len(themes) <= 3 if geo.rows >= 6 else len(themes) <= 2
     return checks
@@ -228,7 +226,9 @@ def run(endpoint, model, runs):
                     payload = client.complete(system, user)
                     res = validate_grid(payload, watchlist=refs, pinned=[],
                                         values=scenario["current"], labels={},
-                                        geo=geo, use_color=True)
+                                        geo=geo, use_color=True,
+                                        previous=scenario["previous"],
+                                        descriptions=DESC)
                     board = render_grid(res.tiles, geo, banner=res.banner,
                                         banner_color=res.banner_color,
                                         subtitle=res.subtitle)

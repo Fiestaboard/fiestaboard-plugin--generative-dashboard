@@ -265,8 +265,8 @@ def test_the_prompt_forbids_showing_an_identifier_on_its_own():
     # A ticker with no price, a station name with no arrival time.
     system, _ = _prompt(build_grid_prompt)
     lowered = system.lower()
-    assert "on its own" in lowered or "alone" in lowered
-    assert "symbol" in lowered or "identifies" in lowered
+    assert "its own" in lowered
+    assert "symbol" in lowered
 
 
 def test_the_prompt_asks_for_restraint_with_color():
@@ -336,3 +336,20 @@ def test_the_grid_prompt_extends_the_number_rule_to_headers():
     system, _ = _prompt(build_grid_prompt)
     lowered = system.lower()
     assert "banner" in lowered and ("digits" in lowered or "numbers" in lowered)
+
+
+def test_label_budget_accounts_for_the_status_dot_column():
+    # Telling the model label_max=4 and then reserving a dot cell is how
+    # CHANGE became CHA on a live board. With color on, every column may
+    # lose a cell to the dot, so the advertised budget must assume it.
+    _, user_on = _prompt(build_grid_prompt, use_color=True,
+                         current={"a.chg": "1.59%"}, refs=["a.chg"])
+    _, user_off = _prompt(build_grid_prompt, use_color=False,
+                          current={"a.chg": "1.59%"}, refs=["a.chg"])
+    assert "label_max=3" in user_on
+    assert "label_max=4" in user_off
+
+
+def test_the_prompt_says_an_identifier_becomes_a_label():
+    system, _ = _prompt(build_grid_prompt)
+    assert 'label "GOOG"' in system or "as the label" in system.lower()

@@ -20,6 +20,41 @@ _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 # Longest unit worth appending. " MPH" is 4; anything longer is prose.
 _MAX_SUFFIX = 5
 
+# Ref-name words that mark a value as an identifier — a name for other data,
+# never data itself. Deliberately narrow: condition/status/phase text are
+# readings and must not be absorbed into a neighbour's label.
+_IDENTIFIER_WORDS = frozenset({
+    "symbol", "ticker", "name", "callsign", "station", "code", "id",
+    "airport", "location", "base", "pair", "team", "city",
+})
+
+# Unit phrases a manifest description can carry, and the affix each implies.
+# Inference is the floor; an affix the model chose always wins.
+_UNIT_HINTS: tuple[tuple[str, str, str], ...] = (
+    ("minute", "", "MIN"),
+    ("mph", "", "MPH"),
+    ("fahrenheit", "", "F"),
+    ("percent", "", "%"),
+    ("usd", "$", ""),
+    ("dollar", "$", ""),
+    ("mile", "", "MI"),
+    ("km", "", "KM"),
+)
+
+
+def _is_identifier_ref(ref: str) -> bool:
+    words = set(ref.partition(".")[2].split("_"))
+    return bool(words & _IDENTIFIER_WORDS)
+
+
+def infer_affixes(description: str) -> tuple[str, str]:
+    """(prefix, suffix) implied by a manifest description, or two blanks."""
+    lowered = description.lower()
+    for hint, prefix, suffix in _UNIT_HINTS:
+        if hint in lowered:
+            return prefix, suffix
+    return "", ""
+
 
 class ValidationError(Exception):
     """The model's answer cannot be shown, and should be retried or dropped."""
@@ -128,6 +163,7 @@ def validate_grid(
     geo: Geometry,
     use_color: bool,
     previous: dict[str, str] | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> GridResult:
     """Turn a model response into placeable tiles, or raise."""
     data = _as_dict(payload)
@@ -180,11 +216,16 @@ def validate_grid(
             if value_text.startswith(label_up) or label_up.startswith(value_text):
                 label_text = ""
         suffix = clean_suffix(entry.get("suffix"))
+        prefix = clean_suffix(entry.get("prefix"))[:2]
+        if not suffix and not prefix:
+            # The model forgot the unit; the manifest often knows it. A board
+            # that shows 62F on Tuesday and 62 on Wednesday looks generated —
+            # inference makes units a property of the data, not of model mood.
+            prefix, suffix = infer_affixes((descriptions or {}).get(ref, ""))
         if suffix and apply_suffix(values[ref], suffix) != values[ref]:
             suffixes[ref] = suffix
         else:
             suffix = ""
-        prefix = clean_suffix(entry.get("prefix"))[:2]
         if prefix and apply_prefix(values[ref], prefix) != values[ref]:
             prefixes[ref] = prefix
         else:
@@ -198,6 +239,29 @@ def validate_grid(
             ),
         ))
         seen.add(ref)
+
+    # Identifiers are never tiles: a digitless value whose ref names a
+    # symbol/station/etc becomes the label of its plugin's first numeric
+    # tile, or disappears. GOOG's tile and CHANGE's tile become one row
+    # reading GOOG -4.10%, whichever order the model listed them in.
+    identifiers: dict[str, str] = {}
+    for ref, tile in chosen:
+        if _is_identifier_ref(ref) and not any(c.isdigit() for c in tile.value):
+            identifiers.setdefault(ref.partition(".")[0], tile.value)
+
+    if identifiers:
+        relabelled: list[tuple[str, Tile]] = []
+        for ref, tile in chosen:
+            plugin_id = ref.partition(".")[0]
+            if _is_identifier_ref(ref) and not any(c.isdigit() for c in tile.value):
+                continue  # the identifier itself never survives as a tile
+            name = identifiers.get(plugin_id)
+            if name and any(c.isdigit() for c in tile.value):
+                tile = Tile(label=name, value=tile.value, color=tile.color)
+                del identifiers[plugin_id]
+            relabelled.append((ref, tile))
+        chosen = relabelled
+        seen = {ref for ref, _ in chosen}
 
     chosen = chosen[:capacity]
 
@@ -218,6 +282,17 @@ def validate_grid(
             Tile(label=labels.get(ref) or default_label(ref), value=values[ref]),
         ))
         seen.add(ref)
+
+    # A board where everything is colored says nothing: the first three
+    # accents survive, the rest go plain. Enforced here because the reader
+    # was promised restraint, and promises to readers are not left to the
+    # model's mood.
+    kept = 0
+    for index, (ref, tile) in enumerate(chosen):
+        if tile.color:
+            kept += 1
+            if kept > 3:
+                chosen[index] = (ref, Tile(label=tile.label, value=tile.value, color=None))
 
     if not chosen:
         raise ValidationError("No usable tiles in response")

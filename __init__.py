@@ -508,6 +508,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 grid = validate_grid(
                     payload, watchlist=watchlist, pinned=pinned, values=current,
                     labels=labels, geo=geo, use_color=use_color, previous=previous,
+                    descriptions=descriptions,
                 )
                 specs = [
                     TileSpec(

@@ -149,13 +149,17 @@ def _context_block(
     now: "datetime | None" = None,
     journal: str = "",
     descriptions: dict[str, str] | None = None,
+    use_color: bool = True,
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
     when = describe_now(now) if now is not None else ""
     # The narrowest column is the one that gives up a cell to the gutter.
+    # With color on, every column may lose a cell to the status dot, so the
+    # advertised label room assumes it — promising 4 and delivering 3 is how
+    # CHANGE became CHA on a live board.
     described = describe_variables(
         refs, labels, notes, current, previous,
-        label_budget=column_inner(geo),
+        label_budget=column_inner(geo) - (1 if use_color else 0),
         wide_budget=geo.cols if geo.tile_columns > 1 else None,
         descriptions=descriptions,
     )
@@ -251,12 +255,11 @@ def build_grid_prompt(
         "FRANCISCO, no tile should say SAN FRANCISCO again.\n\n"
         "Keep labels in the same column the same length where you can — NOW, "
         "LIKE, HIGH, LOW — so the values line up beneath each other.\n\n"
-        "Some values mean nothing on their own. A ticker symbol without its "
-        "price, a station name without its arrival time, a moon phase name "
-        "without its illumination — anything that merely identifies what "
-        "another stat refers to. Put such a value directly beside the stat it "
-        "belongs to, or fold it into the title, or leave it out. Never give it "
-        "a tile alone. Use common sense about which values those are.\n\n"
+        "An identifier — a ticker symbol, a station name, anything that "
+        "merely names what another stat refers to — is NEVER a tile of its "
+        'own. Make it the label of its companion stat instead: label "GOOG" '
+        "on the price tile gives GOOG $339.08 on one row. Or fold it into "
+        "the title. A tile spent on a name with no number is a wasted row.\n\n"
         "Design the board like a made page, not a printout. Pick the pattern "
         "that fits the moment and fill it completely — on a six-row board use "
         "all six rows.\n\n"
@@ -303,7 +306,7 @@ def build_grid_prompt(
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
-            descriptions,
+            descriptions, use_color,
         ),
     )
 

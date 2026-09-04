@@ -169,6 +169,12 @@ def render_grid(
     reserve_dot = use_color and any(t.color for t in tiles)
 
     def flush(buffer: list[Tile]) -> None:
+        # A row with one tile on a multi-column board spans the full width —
+        # label left, value right — because a half-empty row in mid-board is
+        # the single loudest tell that a layout was generated.
+        if len(buffer) == 1 and geo.tile_columns > 1:
+            lines.append(_render_tile(buffer[0], geo.cols, use_color, reserve_dot).rstrip())
+            return
         cells = [
             # Every column but the last gives up one cell as a gutter.
             _render_tile(

@@ -319,3 +319,33 @@ def test_header_rows_reduce_the_tile_capacity():
     tiles = [Tile(f"L{i}", str(i)) for i in range(12)]
     lines = render_grid(tiles, geo, banner="HEAD", subtitle="SUB")
     assert "L8" not in "".join(lines)  # 4 rows x 2 columns = 8 tiles max
+
+
+def test_a_leftover_tile_spans_the_full_row_instead_of_half():
+    # A row that is 80% blank in mid-board is what reads as generated.
+    geo = geometry(6, 22)
+    lines = _content(render_grid(
+        [Tile("CPU", "42%"), Tile("AQI", "168"), Tile("NET", "412")], geo))
+    assert len(lines) == 2
+    solo = lines[1]
+    assert solo.startswith("NET")
+    assert solo.endswith("412")
+    assert len(solo) == 22  # label left, value right, spanning the board
+
+
+def test_money_rows_render_full_width_and_consistent():
+    # $339.08 cannot share an 11-cell column with a label, so both stats go
+    # full-width — label left, value right, the handmade stocks-page shape.
+    # What must never happen is one full row and one half-empty row.
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("GOOG", "$339.08"), Tile("CHG", "1.59%")], geo))
+    assert len(lines) == 2
+    assert lines[0] == "GOOG" + " " * 11 + "$339.08"
+    assert lines[1].startswith("CHG") and lines[1].endswith("1.59%")
+    assert len(lines[0]) == len(lines[1]) == 22
+
+
+def test_single_column_boards_keep_their_normal_row_shape():
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("CPU", "42%")], geo))
+    assert lines[0] == "CPU" + " " * 9 + "42%"
