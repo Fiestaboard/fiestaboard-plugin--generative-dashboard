@@ -440,7 +440,11 @@ class GenerativeDashboardPlugin(PluginBase):
             Option(
                 value=choice.ref,
                 label=choice.label,
-                description=choice.disabled_reason or choice.description,
+                # Keep the ref in the description even when disabled: the
+                # search box filters on label + description only.
+                description=" · ".join(
+                    part for part in (choice.disabled_reason, choice.description) if part
+                ),
                 group=choice.group,
                 preview=choice.preview or None,
                 disabled=choice.disabled,
@@ -454,8 +458,12 @@ class GenerativeDashboardPlugin(PluginBase):
         needle = request.query.strip().lower()
         return [
             Option(
+                # The widget draws only the label, so the owning plugin has to
+                # be in it or two variables called "temp" look identical.
                 value=ref,
-                label=labels.get(ref) or catalog.default_label(ref),
+                label=catalog.picker_label(
+                    ref, catalog.plugin_display_name(ref.split(".", 1)[0]), labels.get(ref, "")
+                ),
                 description=ref,
             )
             for ref in self._watchlist(self.config)

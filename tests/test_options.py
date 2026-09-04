@@ -12,10 +12,16 @@ def plugin(manifest, config, monkeypatch):
     instance = GenerativeDashboardPlugin(manifest)
     instance.config = config
     monkeypatch.setattr(
+        catalog, "plugin_display_name",
+        lambda pid: {"air": "Air Quality", "wx": "Weather"}.get(pid, pid),
+    )
+    monkeypatch.setattr(
         catalog, "variable_catalog",
         lambda exclude, width, query="": [
-            VariableChoice("wx.temp", "TEMP", "Outside temperature", "Weather", "61F"),
-            VariableChoice("gd.headline", "HEADLINE", "", "Generative Dashboard", "",
+            VariableChoice("wx.temp", "Temp (Weather)",
+                           "61F · Outside temperature · wx.temp", "Weather", "61F"),
+            VariableChoice("gd.headline", "Headline (Generative Dashboard)",
+                           "gd.headline", "Generative Dashboard", "",
                            True, "A dashboard cannot watch itself."),
         ],
     )
@@ -67,11 +73,6 @@ def test_watched_picker_filters_on_the_query(plugin):
     assert [o.value for o in _options(plugin, "watched", query="aqi").options] == ["air.aqi"]
 
 
-def test_watched_picker_uses_configured_labels(plugin):
-    plugin.config = dict(plugin.config, labels={"air.aqi": "AIR"})
-    assert _options(plugin, "watched").options[0].label == "AIR"
-
-
 def test_an_unknown_options_id_is_refused(plugin):
     with pytest.raises(OptionsUnavailable):
         _options(plugin, "nonsense")
@@ -90,3 +91,22 @@ def test_the_picker_never_calls_the_llm(plugin, monkeypatch):
 
     monkeypatch.setattr(llm.DashboardLLM, "complete", explode)
     _options(plugin, "variables")
+
+
+def test_watched_picker_names_the_owning_plugin(plugin):
+    # Same widget, same blind spot: only `label` is drawn.
+    labels = [o.label for o in _options(plugin, "watched").options]
+    assert labels == ["Aqi (Air Quality)", "Temp (Weather)"]
+
+
+def test_watched_picker_keeps_a_custom_label_but_still_attributes_it(plugin):
+    plugin.config = dict(plugin.config, labels={"air.aqi": "AIR"})
+    assert _options(plugin, "watched").options[0].label == "AIR (Air Quality)"
+
+
+def test_a_disabled_option_keeps_its_ref_searchable(plugin):
+    # The reason matters most, but dropping the ref would make the row
+    # impossible to find by typing its name.
+    option = _options(plugin, "variables").options[1]
+    assert "itself" in option.description.lower()
+    assert "gd.headline" in option.description

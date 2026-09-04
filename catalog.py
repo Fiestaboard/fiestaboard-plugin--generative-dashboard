@@ -36,11 +36,32 @@ def _registry() -> Any:
 
 
 def default_label(ref: str) -> str:
-    """Human label for a ``plugin.var`` ref when the user has not set one.
+    """Board label for a ``plugin.var`` ref when the user has not set one.
 
-    Underscores have no flap on the board, so they become spaces.
+    Underscores have no flap on the board, so they become spaces, and the
+    board is uppercase-only.
     """
     return ref.split(".", 1)[-1].replace("_", " ").upper()
+
+
+def readable_name(ref: str) -> str:
+    """The variable's name in title case, for reading rather than for the board."""
+    return ref.split(".", 1)[-1].replace("_", " ").title()
+
+
+def plugin_display_name(plugin_id: str) -> str:
+    """Display name for one plugin. Cheap: a manifest lookup, no data fetch."""
+    return _plugin_name(_registry(), plugin_id)
+
+
+def picker_label(ref: str, plugin_name: str, custom: str = "") -> str:
+    """How a variable reads in the settings picker.
+
+    The variable comes first because the chosen-row list truncates on overflow
+    — leading with the plugin name would cut off the half that distinguishes
+    one row from another.
+    """
+    return f"{custom or readable_name(ref)} ({plugin_name})"
 
 
 def _plugin_name(registry: Any, plugin_id: str) -> str:
@@ -73,8 +94,11 @@ def variable_catalog(
             meta = metadata[plugin_id][name] or {}
             ref = f"{plugin_id}.{name}"
             description = str(meta.get("description") or "")
+            label = picker_label(ref, group)
 
-            if needle and needle not in f"{ref} {description}".lower():
+            # Search the label too, so the plugin's display name is findable:
+            # a user types "star trek", the ref only says "star_trek_quotes".
+            if needle and needle not in f"{label} {ref} {description}".lower():
                 continue
 
             disabled = False
@@ -91,13 +115,22 @@ def variable_catalog(
                         f"{max_value_width}-cell tile."
                     )
 
+            preview = str(meta.get("preview") or "")
+            # The settings widget renders `label` and nothing else — it ignores
+            # `group` and `preview` entirely, and shows `description` only as a
+            # hover tooltip. So attribution has to be in the label, or two
+            # plugins that both expose "temp" become indistinguishable. The
+            # search box filters on label + description, which is why the ref
+            # goes in the description: it makes "temp_f" findable.
+            detail = " · ".join(part for part in (preview, description, ref) if part)
+
             choices.append(
                 VariableChoice(
                     ref=ref,
-                    label=default_label(ref),
-                    description=description,
+                    label=label,
+                    description=detail,
                     group=group,
-                    preview=str(meta.get("preview") or ""),
+                    preview=preview,
                     disabled=disabled,
                     disabled_reason=reason,
                 )

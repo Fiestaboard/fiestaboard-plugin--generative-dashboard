@@ -186,3 +186,82 @@ def test_read_values_survives_a_plugin_that_raises(fake):
 
     fake(Exploding())
     assert read_values(["weather.temp_f"], None, "generative_dashboard") == {}
+
+
+def test_choice_label_names_the_owning_plugin(fake):
+    # The picker widget renders only `label` — it ignores `group` entirely —
+    # so attribution has to live in the label or it is invisible. The variable
+    # leads because the chosen-row list truncates on overflow.
+    fake(FakeRegistry(
+        metadata={"weather": {"temp_f": {"description": "", "max_length": 6,
+                                         "group": "", "preview": "61F"}}},
+        names={"weather": "Weather"},
+    ))
+    assert variable_catalog("generative_dashboard", 15)[0].label == "Temp F (Weather)"
+
+
+def test_choice_description_carries_the_ref_so_search_can_match_it(fake):
+    # The search box filters on label + description only.
+    fake(FakeRegistry(
+        metadata={"weather": {"temp_f": {"description": "Outside temp", "max_length": 6,
+                                         "group": "", "preview": "61F"}}},
+        names={"weather": "Weather"},
+    ))
+    description = variable_catalog("generative_dashboard", 15)[0].description
+    assert "weather.temp_f" in description
+    assert "Outside temp" in description
+
+
+def test_choice_description_shows_the_current_value(fake):
+    fake(FakeRegistry(
+        metadata={"weather": {"temp_f": {"description": "", "max_length": 6,
+                                         "group": "", "preview": "61F"}}},
+        names={"weather": "Weather"},
+    ))
+    assert "61F" in variable_catalog("generative_dashboard", 15)[0].description
+
+
+def test_two_plugins_with_the_same_variable_name_are_distinguishable(fake):
+    fake(FakeRegistry(
+        metadata={
+            "weather": {"temp": {"description": "", "max_length": 6, "group": "", "preview": "61F"}},
+            "home_assistant": {"temp": {"description": "", "max_length": 6, "group": "", "preview": "68F"}},
+        },
+        names={"weather": "Weather", "home_assistant": "Home Assistant"},
+    ))
+    labels = [c.label for c in variable_catalog("generative_dashboard", 15)]
+    assert len(set(labels)) == 2
+    assert "Temp (Home Assistant)" in labels and "Temp (Weather)" in labels
+
+
+def test_a_disabled_reason_still_wins_the_description(fake):
+    fake(FakeRegistry(
+        metadata={"art": {"art": {"description": "Art blob", "max_length": 512,
+                                  "group": "", "preview": ""}}},
+        names={"art": "Art"},
+    ))
+    choice = variable_catalog("generative_dashboard", 15)[0]
+    assert "512" in choice.disabled_reason
+
+
+def test_searching_by_plugin_name_matches_the_label(fake):
+    fake(FakeRegistry(
+        metadata={"weather": {"temp_f": {"description": "", "max_length": 6,
+                                         "group": "", "preview": ""}}},
+        names={"weather": "Weather"},
+    ))
+    assert len(variable_catalog("generative_dashboard", 15, query="weather")) == 1
+
+
+def test_searching_by_the_plugins_display_name_finds_its_variables(fake):
+    # "Star Trek Quotes" is the name a user reads; the ref says
+    # "star_trek_quotes", so matching only the ref misses the spaced form.
+    fake(FakeRegistry(
+        metadata={"star_trek_quotes": {
+            "character": {"description": "", "max_length": 6, "group": "", "preview": ""},
+            "series": {"description": "", "max_length": 6, "group": "", "preview": ""},
+        }},
+        names={"star_trek_quotes": "Star Trek Quotes"},
+    ))
+    hits = variable_catalog("generative_dashboard", 15, query="star trek")
+    assert len(hits) == 2
