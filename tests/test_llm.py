@@ -290,3 +290,32 @@ def test_the_prompt_asks_for_units_on_bare_numbers():
 def test_the_prompt_asks_for_one_coherent_theme():
     system, _ = _prompt(build_grid_prompt)
     assert "theme" in system.lower() or "coherent" in system.lower()
+
+
+def test_the_prompt_forbids_repeating_the_title_in_a_tile():
+    system, _ = _prompt(build_grid_prompt)
+    assert "repeat" in system.lower() or "already in the title" in system.lower()
+
+
+def test_prose_is_told_never_to_invent_direction():
+    # "GOOG UP $339.08" — the number was real (the price) but UP was a lie.
+    system, _ = _prompt(build_prose_prompt)
+    lowered = system.lower()
+    assert "direction" in lowered or "rose or fell" in lowered
+
+
+def test_both_modes_are_told_to_skip_placeholder_values():
+    for builder in (build_grid_prompt, build_prose_prompt):
+        system, _ = _prompt(builder)
+        assert "UNKNOWN" in system or "placeholder" in system.lower()
+
+
+def test_the_default_timeout_tolerates_a_busy_local_model():
+    # Off the render path, so waiting is free; a timeout wastes a whole cycle.
+    assert DashboardLLM("http://x/v1", "k", "m", 0.3).timeout >= 60
+
+
+def test_prose_is_given_a_target_length_not_just_a_cap():
+    # "At most 112, be brief" produced 26-character stubs.
+    system, _ = _prompt(build_prose_prompt)
+    assert "aim for" in system.lower() or "two or three" in system.lower()

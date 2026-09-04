@@ -50,7 +50,10 @@ class DashboardLLM:
         api_key: str,
         model: str,
         temperature: float,
-        timeout: int = 30,
+        # Generous on purpose: this runs on a worker thread, never the
+        # render path, and a shared local model under load can take a
+        # while. A timeout costs a whole cycle; patience costs nothing.
+        timeout: int = 90,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -227,16 +230,20 @@ def build_grid_prompt(
         "cut off mid-word. Abbreviate to fit: PRESSURE at label_max=4 becomes "
         "PRES. A stat with a long value is given a whole row to itself, which "
         "is why some label_max values are generous.\n\n"
+        "Skip any stat whose value is a placeholder — UNKNOWN, N/A, NONE, TEST, or an empty reading. Showing them wastes the board.\n\n"
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
         'A bare number is ambiguous: 62 what? Set "suffix" on a tile to the '
         "unit its desc implies — F, %, MPH, KM, MI — so the board shows 62F "
-        "and 7.2MPH. No suffix for unitless values like counts or indexes.\n\n"
+        "and 7.2MPH. No suffix for unitless values like counts or indexes, "
+        "and none for values that already carry their unit.\n\n"
         "Compose the board around ONE coherent theme — the weather story, the "
         "market story, the transit story — chosen for the time of day and "
         "what is actually happening. A themed board reads like a page; a "
         "grab-bag of unrelated stats reads like noise. Off-theme stats earn a "
-        "slot only when they are genuinely urgent.\n\n"
+        "slot only when they are genuinely urgent. Never spend a tile "
+        "repeating something already in the title: if the banner says SAN "
+        "FRANCISCO, no tile should say SAN FRANCISCO again.\n\n"
         "Keep labels in the same column the same length where you can — NOW, "
         "LIKE, HIGH, LOW — so the values line up beneath each other.\n\n"
         "Some values mean nothing on their own. A ticker symbol without its "
@@ -299,8 +306,15 @@ def build_prose_prompt(
     """System and user prompts for sentence composition."""
     system = (
         "You write a very short status summary for a split-flap board.\n\n"
-        f"Write at most {geo.prose_budget} characters. It will be wrapped at "
-        f"{geo.cols} columns across {geo.rows} rows, so be brief.\n\n"
+        f"Aim for roughly {int(geo.prose_budget * 0.8)} characters and never "
+        f"exceed {geo.prose_budget}. It wraps at {geo.cols} columns across "
+        f"{geo.rows} rows. Two or three short sentences fill a board well; a "
+        "single stub line wastes it.\n\n"
+        "Shape it like a bulletin: lead with what changed and what to do "
+        "about it, then a line of context — how the day has run, or one more "
+        "stat worth knowing. EXAMPLE: AQI JUMPED FROM 31 TO 168 THIS "
+        "AFTERNOON. KEEP THE WINDOWS SHUT. OTHERWISE MILD AT 62F WITH LIGHT "
+        "WIND.\n\n"
         "Say what changed and why it matters. Lead with the most important "
         "thing. Skip anything that has not moved unless there is room.\n\n"
         'Write one short "log" line describing how things stand — "fog thick '
@@ -313,6 +327,12 @@ def build_prose_prompt(
         "something light is fine. A holiday or a notable date outranks routine "
         "numbers. Use your own judgement about what the date means.\n\n"
 
+        "Skip any stat whose value is a placeholder — UNKNOWN, N/A, NONE, TEST, or an empty reading. Showing them wastes the board.\n\n"
+        "Numbers must also keep their meaning, not just their digits: a price "
+        "is a price, a total is a total. Never say something rose, fell, is up "
+        "or is down unless its was/now values actually show that direction — "
+        "writing UP next to a plain price turns a true number into a false "
+        "sentence.\n\n"
         "CRITICAL: use the supplied values exactly as written. Do not compute, "
         "do not round, do not abbreviate, and do not invent any number. If a "
         "value reads 94,120 then write 94,120. Never state a percentage or a "

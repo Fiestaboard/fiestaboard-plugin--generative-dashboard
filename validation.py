@@ -71,6 +71,18 @@ def clean_suffix(raw: object) -> str:
     return text[:_MAX_SUFFIX]
 
 
+def apply_suffix(value: str, suffix: str) -> str:
+    """Append a unit only where one is missing.
+
+    Values that already end in letters carry their own unit ("6.2MI",
+    "7:36 PM"); appending another produces 6.2MIMI. Only a value ending in a
+    digit or a percent sign is bare enough to need one.
+    """
+    if not suffix or not value or value[-1] not in "0123456789":
+        return value
+    return value + suffix
+
+
 def _as_dict(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise ValidationError("Response was not a JSON object")
@@ -111,8 +123,10 @@ def validate_grid(
             continue
         color = str(entry.get("color") or "").lower()
         suffix = clean_suffix(entry.get("suffix"))
-        if suffix:
+        if suffix and apply_suffix(values[ref], suffix) != values[ref]:
             suffixes[ref] = suffix
+        else:
+            suffix = ""
         chosen.append((
             ref,
             Tile(
@@ -121,7 +135,7 @@ def validate_grid(
                     or sanitize(str(entry.get("label") or ""))
                     or default_label(ref)
                 ),
-                value=values[ref] + suffix,
+                value=apply_suffix(values[ref], suffix) if suffix else values[ref],
                 color=color if (use_color and color in ACCENT_COLORS) else None,
             ),
         ))

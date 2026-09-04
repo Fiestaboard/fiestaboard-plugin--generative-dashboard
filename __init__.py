@@ -36,7 +36,7 @@ from .journal import Journal
 from .charset import sanitize
 from .layout import Geometry, Tile, geometry, placed_count, render_grid, wrap_center
 from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
-from .validation import ValidationError, validate_grid, validate_prose
+from .validation import ValidationError, apply_suffix, validate_grid, validate_prose
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +334,7 @@ class GenerativeDashboardPlugin(PluginBase):
             tiles = [
                 Tile(
                     label=spec.label,
-                    value=values[spec.ref] + spec.suffix,
+                    value=apply_suffix(values[spec.ref], spec.suffix),
                     color=spec.color,
                 )
                 for spec in specs

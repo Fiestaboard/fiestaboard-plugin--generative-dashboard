@@ -249,3 +249,20 @@ def test_no_suffix_leaves_the_value_alone():
     result = _validate(_grid())
     assert result.tiles[0].value == "168"
     assert result.suffixes == {}
+
+
+def test_a_suffix_is_not_applied_when_the_value_already_has_a_unit():
+    # weather.visibility is "6.2MI"; adding MI again reads 6.2MIMI.
+    from plugins.generative_dashboard.validation import apply_suffix
+
+    assert apply_suffix("6.2MI", "MI") == "6.2MI"
+    assert apply_suffix("7:36 PM", "PM") == "7:36 PM"
+    assert apply_suffix("61F", "F") == "61F"
+
+
+def test_a_suffix_applies_only_to_values_ending_in_a_digit():
+    from plugins.generative_dashboard.validation import apply_suffix
+
+    assert apply_suffix("62", "F") == "62F"
+    assert apply_suffix("100", "%") == "100%"
+    assert apply_suffix("CLEAR", "F") == "CLEAR"
