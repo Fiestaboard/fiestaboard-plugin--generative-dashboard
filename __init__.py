@@ -470,6 +470,7 @@ class GenerativeDashboardPlugin(PluginBase):
         pinned = self._pinned(config)
         use_color = bool(config.get("use_color", True))
         extra = str(config.get("extra_instructions", "") or "")
+        audience = str(config.get("audience", "") or "")
 
         for attempt in range(2):
             suffix = "" if attempt == 0 else (
@@ -480,7 +481,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     extra_instructions=extra + suffix, now=local_now(), journal=journal,
-                    descriptions=descriptions,
+                    descriptions=descriptions, audience=audience,
                 )
             else:
                 system, user = build_grid_prompt(
@@ -488,6 +489,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
                     now=local_now(), journal=journal, descriptions=descriptions,
+                    audience=audience,
                 )
             try:
                 payload = client.complete(system, user)

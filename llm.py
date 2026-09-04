@@ -144,6 +144,25 @@ def describe_variables(
     return "\n".join(lines)
 
 
+def _audience_block(audience: str) -> str:
+    """The editor's brief: who reads this board.
+
+    Taste is personal — a board can only feel curated when it is curated for
+    someone. This block leads the prompt because every later rule is generic,
+    and the reader is not.
+    """
+    if not audience.strip():
+        return ""
+    return (
+        "WHO THIS BOARD IS FOR:\n"
+        f"{audience.strip()}\n\n"
+        "You are their editor. Every slot must earn its place with these "
+        "people, at this hour, on this day. When two stats compete, pick the "
+        "one they would actually glance at. What they care about outranks "
+        "every generic rule below.\n\n"
+    )
+
+
 def _context_block(
     geo: Geometry,
     refs: list[str],
@@ -196,6 +215,7 @@ def build_grid_prompt(
     now: datetime | None = None,
     journal: str = "",
     descriptions: dict[str, str] | None = None,
+    audience: str = "",
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
@@ -231,7 +251,8 @@ def build_grid_prompt(
         )
 
     system = (
-        "You lay out a stats dashboard for a split-flap board.\n\n"
+        _audience_block(audience)
+        + "You lay out a stats dashboard for a split-flap board.\n\n"
         f"You may place at most {geo.tile_budget} tiles, arranged in "
         f"{geo.tile_columns} column(s) of {geo.tile_width} cells, reading left "
         "to right then down. The most important stat goes first.\n\n"
@@ -336,10 +357,12 @@ def build_prose_prompt(
     now: datetime | None = None,
     journal: str = "",
     descriptions: dict[str, str] | None = None,
+    audience: str = "",
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
-        "You write a very short status summary for a split-flap board.\n\n"
+        _audience_block(audience)
+        + "You write a very short status summary for a split-flap board.\n\n"
         f"Aim for roughly {int(geo.prose_budget * 0.8)} characters and never "
         f"exceed {geo.prose_budget}. It wraps at {geo.cols} columns across "
         f"{geo.rows} rows. Two or three short sentences fill a board well; a "

@@ -374,3 +374,24 @@ def test_a_trailing_comma_is_repaired_rather_than_rejected():
         result = _client().complete("sys", "user")
     assert result["banner"] == "X"
     assert len(result["tiles"]) == 1
+
+
+def test_the_audience_brief_leads_the_system_prompt():
+    # Taste is personal: the model composes for specific people, and their
+    # brief outranks every generic rule about what a good board is.
+    system, _ = _prompt(
+        build_grid_prompt,
+        audience="One of us surfs mornings; we hold GOOG; windows open unless AQI is bad.",
+    )
+    assert "surfs mornings" in system
+    assert system.index("surfs mornings") < system.index("PATTERN")
+
+
+def test_no_audience_means_no_empty_brief_block():
+    system, _ = _prompt(build_grid_prompt)
+    assert "WHO THIS BOARD IS FOR" not in system
+
+
+def test_prose_gets_the_same_audience_brief():
+    system, _ = _prompt(build_prose_prompt, audience="We keep bees.")
+    assert "We keep bees." in system

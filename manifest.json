@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -18,6 +18,13 @@
         "type": "boolean",
         "title": "Enable Generative Dashboard",
         "default": false
+      },
+      "audience": {
+        "type": "string",
+        "title": "Who's Watching",
+        "description": "Tell the AI who reads this board and what they care about \u2014 it curates for them the way an editor writes for a reader. E.g. 'Two of us in the Sunset. One surfs mornings and checks Ocean Beach; one rides the N downtown at 8. We hold GOOG. Windows stay open unless AQI says otherwise.'",
+        "format": "textarea",
+        "default": ""
       },
       "api_base_url": {
         "type": "string",

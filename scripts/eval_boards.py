@@ -61,6 +61,10 @@ DESC = {
     "transit.delay": "Line delay in minutes",
 }
 NOTES = {"air.aqi": "over 100 is unhealthy, over 150 keep the windows shut"}
+AUDIENCE = (
+    "Two adults in San Francisco. One surfs mornings; one commutes downtown "
+    "at 8. They hold GOOG and keep windows open unless the air is bad."
+)
 
 SCENARIOS = [
     {
@@ -217,7 +221,7 @@ def run(endpoint, model, runs):
                 geo=geo, refs=refs, labels={}, notes=NOTES,
                 current=scenario["current"], previous=scenario["previous"],
                 previous_board=[], extra_instructions="",
-                now=scenario["when"], descriptions=DESC,
+                now=scenario["when"], descriptions=DESC, audience=AUDIENCE,
             )
             try:
                 if scenario["mode"] == "prose":

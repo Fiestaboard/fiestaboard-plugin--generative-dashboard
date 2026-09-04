@@ -208,3 +208,11 @@ def test_the_remembered_history_is_sent_on_the_next_composition(plugin):
                          "- 09:00 Fog thick\n- 15:00 Cleared")
     user = post.call_args.kwargs["json"]["messages"][1]["content"]
     assert "Fog thick" in user and "Cleared" in user
+
+
+def test_the_audience_setting_reaches_the_prompt(plugin):
+    config = dict(plugin.config, audience="One of us surfs mornings.")
+    with patch("requests.post", return_value=_reply(GOOD_GRID)) as post:
+        _generate(plugin, config)
+    system = post.call_args.kwargs["json"]["messages"][0]["content"]
+    assert "surfs mornings" in system
