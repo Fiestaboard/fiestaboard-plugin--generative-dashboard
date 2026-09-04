@@ -429,13 +429,14 @@ class GenerativeDashboardPlugin(PluginBase):
                 system, user = build_prose_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
-                    extra_instructions=extra + suffix,
+                    extra_instructions=extra + suffix, now=datetime.now(),
                 )
             else:
                 system, user = build_grid_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
+                    now=datetime.now(),
                 )
             try:
                 payload = client.complete(system, user)

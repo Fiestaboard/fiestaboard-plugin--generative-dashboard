@@ -8,11 +8,13 @@ letting the model infer them.
 import json
 import logging
 import re
+from datetime import datetime
 
 import requests
 
 from .charset import ACCENT_COLORS
 from .layout import Geometry, column_inner
+from .when import describe_now
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +140,10 @@ def _context_block(
     current: dict[str, str],
     previous: dict[str, str],
     previous_board: list[str],
+    now: "datetime | None" = None,
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
+    when = describe_now(now) if now is not None else ""
     # The narrowest column is the one that gives up a cell to the gutter.
     described = describe_variables(
         refs, labels, notes, current, previous,
@@ -147,7 +151,8 @@ def _context_block(
         wide_budget=geo.cols if geo.tile_columns > 1 else None,
     )
     return (
-        f"BOARD: {geo.rows} rows of {geo.cols} columns.\n\n"
+        (f"RIGHT NOW: {when}.\n\n" if when else "")
+        + f"BOARD: {geo.rows} rows of {geo.cols} columns.\n\n"
         f"AVAILABLE STATS:\n{described}\n\n"
         f"CURRENTLY ON THE BOARD:\n{board}\n"
     )
@@ -168,6 +173,7 @@ def build_grid_prompt(
     previous_board: list[str],
     use_color: bool,
     extra_instructions: str,
+    now: datetime | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
@@ -202,6 +208,12 @@ def build_grid_prompt(
         "is why some label_max values are generous.\n\n"
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
+        "Weight the board for the time and date given above. A weekday "
+        "commute hour makes transit and traffic matter; a hot afternoon makes "
+        "air quality matter; late at night almost nothing is urgent and "
+        "something light is fine. A holiday or a notable date outranks routine "
+        "numbers. Use your own judgement about what the date means.\n\n"
+
         f"{colour_rule}"
         'Optionally set "banner" to one short line across the top when '
         f"something deserves a sentence. A banner costs {geo.tile_columns} "
@@ -213,7 +225,7 @@ def build_grid_prompt(
     )
     return (
         _with_extra(system, extra_instructions),
-        _context_block(geo, refs, labels, notes, current, previous, previous_board),
+        _context_block(geo, refs, labels, notes, current, previous, previous_board, now),
     )
 
 
@@ -227,6 +239,7 @@ def build_prose_prompt(
     previous: dict[str, str],
     previous_board: list[str],
     extra_instructions: str,
+    now: datetime | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
@@ -235,6 +248,12 @@ def build_prose_prompt(
         f"{geo.cols} columns across {geo.rows} rows, so be brief.\n\n"
         "Say what changed and why it matters. Lead with the most important "
         "thing. Skip anything that has not moved unless there is room.\n\n"
+        "Weight the board for the time and date given above. A weekday "
+        "commute hour makes transit and traffic matter; a hot afternoon makes "
+        "air quality matter; late at night almost nothing is urgent and "
+        "something light is fine. A holiday or a notable date outranks routine "
+        "numbers. Use your own judgement about what the date means.\n\n"
+
         "CRITICAL: use the supplied values exactly as written. Do not compute, "
         "do not round, do not abbreviate, and do not invent any number. If a "
         "value reads 94,120 then write 94,120. Never state a percentage or a "
@@ -246,5 +265,5 @@ def build_prose_prompt(
     )
     return (
         _with_extra(system, extra_instructions),
-        _context_block(geo, refs, labels, notes, current, previous, previous_board),
+        _context_block(geo, refs, labels, notes, current, previous, previous_board, now),
     )

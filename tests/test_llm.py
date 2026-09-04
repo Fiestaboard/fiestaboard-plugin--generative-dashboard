@@ -210,3 +210,23 @@ def test_label_budget_accounts_for_a_value_that_gets_its_own_row():
         label_budget=10, wide_budget=22,
     )
     assert "label_max=13" in text
+
+
+def test_the_prompt_tells_the_model_when_now_is():
+    from datetime import datetime
+
+    _, user = _prompt(build_grid_prompt, now=datetime(2026, 12, 24, 18, 30))
+    assert "RIGHT NOW" in user
+    assert "Thursday 24 December 2026" in user
+    assert "evening" in user
+
+
+def test_the_prompt_omits_the_time_line_when_no_clock_is_given():
+    _, user = _prompt(build_grid_prompt)
+    assert "RIGHT NOW" not in user
+
+
+def test_both_prompts_ask_the_model_to_weight_by_time_of_day():
+    for builder in (build_grid_prompt, build_prose_prompt):
+        system, _ = _prompt(builder)
+        assert "commute" in system.lower()

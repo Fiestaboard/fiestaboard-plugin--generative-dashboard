@@ -498,3 +498,31 @@ def test_fallback_never_overrides_a_value_that_did_arrive(fake):
         ["fast.v"], None, "generative_dashboard", fallback={"fast.v": "stale"}
     )
     assert values == {"fast.v": "fresh"}
+
+
+def test_color_code_variables_are_not_watched(fake):
+    """`*_color` holds a colour name for {{x_color}} template use, not a stat.
+
+    Shown as text it reads "FOG COL 66", which means nothing on a dashboard.
+    """
+    fake(FakeRegistry(
+        metadata={"air_fog": {
+            "fog_status": {"description": "", "max_length": 10, "group": "", "preview": "CLEAR"},
+            "fog_color": {"description": "", "max_length": 4, "group": "", "preview": "66"},
+        }},
+        names={"air_fog": "Air Quality & Fog"},
+    ))
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    assert eligible_refs("generative_dashboard", 22) == ["air_fog.fog_status"]
+
+
+def test_color_variables_are_still_listed_in_the_picker_as_unusable(fake):
+    fake(FakeRegistry(
+        metadata={"air_fog": {
+            "fog_color": {"description": "", "max_length": 4, "group": "", "preview": "66"}}},
+        names={"air_fog": "Air Quality & Fog"},
+    ))
+    choice = variable_catalog("generative_dashboard", 22)[0]
+    assert choice.disabled
+    assert "color" in choice.disabled_reason.lower()

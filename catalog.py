@@ -113,10 +113,16 @@ def _matches(choice: VariableChoice, needle: str) -> bool:
     return needle in haystack.lower()
 
 
-def _unusable_reason(plugin_id: str, exclude_plugin_id: str, max_length: object, width: int) -> str:
+def _unusable_reason(
+    plugin_id: str, exclude_plugin_id: str, max_length: object, width: int, name: str = ""
+) -> str:
     """Why this variable cannot be watched, or "" if it can."""
     if plugin_id == exclude_plugin_id:
         return "A dashboard cannot watch itself."
+    if name.endswith("_color"):
+        # These hold a colour name for {{x_color}} tiles. As a stat they read
+        # "FOG COL 66", which tells you nothing.
+        return "A color code for template use, not a stat."
     if isinstance(max_length, int) and max_length > width:
         return f"Up to {max_length} characters — wider than the {width}-cell board."
     return ""
@@ -150,7 +156,7 @@ def variable_catalog(
         for name in sorted(metadata[plugin_id]):
             meta = metadata[plugin_id][name] or {}
             reason = _unusable_reason(
-                plugin_id, exclude_plugin_id, meta.get("max_length"), max_value_width
+                plugin_id, exclude_plugin_id, meta.get("max_length"), max_value_width, name
             )
             choice = _build_choice(
                 ref=f"{plugin_id}.{name}",
@@ -171,7 +177,8 @@ def variable_catalog(
         for name in sorted(getattr(variables, "simple", {}) or {}):
             meta = variables.get_variable_metadata(name)
             reason = _unusable_reason(
-                plugin_id, exclude_plugin_id, getattr(meta, "max_length", None), max_value_width
+                plugin_id, exclude_plugin_id, getattr(meta, "max_length", None),
+                max_value_width, name,
             ) or f"Enable {group} to watch its variables."
             unusable.append(
                 _build_choice(
@@ -215,8 +222,10 @@ def eligible_refs(exclude_plugin_id: str, max_value_width: int) -> list[str]:
             continue
         for name in sorted(getattr(variables, "simple", {}) or {}):
             meta = variables.get_variable_metadata(name)
-            max_length = getattr(meta, "max_length", None)
-            if isinstance(max_length, int) and max_length > max_value_width:
+            if _unusable_reason(
+                plugin_id, exclude_plugin_id,
+                getattr(meta, "max_length", None), max_value_width, name,
+            ):
                 continue
             refs.append(f"{plugin_id}.{name}")
     return refs
