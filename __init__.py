@@ -140,10 +140,22 @@ class GenerativeDashboardPlugin(PluginBase):
         return board.device_type
 
     def _watchlist(self, config: dict[str, Any]) -> list[str]:
+        """The candidate pool: what the user chose, or everything if they did not.
+
+        An empty watchlist means "watch everything", not "watch nothing".
+        Curating a pool by hand duplicates the model's job, so the picker is
+        there to narrow the default, not to construct it.
+        """
         raw = config.get("watchlist") or []
-        if not isinstance(raw, list):
-            return []
-        return [r for r in raw if isinstance(r, str) and "." in r][:MAX_WATCHLIST]
+        chosen = (
+            [r for r in raw if isinstance(r, str) and "." in r][:MAX_WATCHLIST]
+            if isinstance(raw, list)
+            else []
+        )
+        if chosen:
+            return chosen
+        width = geometry(DEFAULT_BOARD_ROWS, DEFAULT_BOARD_COLS).tile_width
+        return catalog.eligible_refs(self.plugin_id, width)
 
     def _labels(self, config: dict[str, Any]) -> dict[str, str]:
         raw = config.get("labels") or {}

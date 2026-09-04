@@ -20,28 +20,21 @@ Small local models are the ones most likely to fail validation. That is safe —
 the board falls back to a plain grid of live numbers — but if you see
 `degraded: no_llm` persistently, try a larger model.
 
-## 2. Pick what to watch
+## 2. There is no step 2
 
-Open **Watched Variables** and search. The list is grouped by plugin and shows
-each variable's current value, so you can recognise what you want.
+Enable the plugin and it watches everything your other enabled plugins expose.
+That is the intended way to run it.
 
-Good starting points, if you have the plugins enabled:
+If you want to narrow the pool, **Watched Variables** is searchable and every
+row names its owning plugin, so `Temp F (Weather)` and `Temp (Home Assistant)`
+are never confused. Reach for it to mute something noisy — `random.coin_flip`
+changes on every read and will keep the board busy for no reason — or to keep
+the board to a single subject.
 
-- `weather.temp_f`, `weather.condition`
-- `air_quality.aqi`
-- `network_speed.download_mbps`
-- `stocks.*` or `currency.*`
-- `pihole.blocked_today`
-
-Watch more than fits. Twenty to forty variables gives the model something to
-actually choose between; that choosing is the point of the plugin.
-
-**Plugins you have not enabled still appear**, greyed out and labelled *"Enable
-Dad Jokes to watch its variables."* FiestaBoard only publishes variables for
+Plugins you have not enabled still appear, greyed and labelled *"Enable Dad
+Jokes to watch its variables."* FiestaBoard only publishes variables for
 enabled plugins, so those cannot be selected until you switch the plugin on —
-but you can at least see what is on offer before deciding. Usable variables are
-always listed first, so the ones you can pick right now are never buried behind
-a plugin you have turned off.
+but you can see what is on offer before deciding.
 
 ## 3. Write notes for the ones that matter
 

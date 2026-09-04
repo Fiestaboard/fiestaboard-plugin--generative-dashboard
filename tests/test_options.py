@@ -64,9 +64,11 @@ def test_watched_picker_offers_only_already_watched_variables(plugin):
     assert [o.value for o in _options(plugin, "watched").options] == ["air.aqi", "wx.temp"]
 
 
-def test_watched_picker_is_empty_when_nothing_is_watched(plugin):
+def test_watched_picker_offers_everything_when_the_watchlist_is_empty(plugin, monkeypatch):
+    # Empty means "watching everything", so everything is pinnable.
+    monkeypatch.setattr(catalog, "eligible_refs", lambda exclude, width: ["a.b", "c.d"])
     plugin.config = dict(plugin.config, watchlist=[])
-    assert _options(plugin, "watched").options == []
+    assert [o.value for o in _options(plugin, "watched").options] == ["a.b", "c.d"]
 
 
 def test_watched_picker_filters_on_the_query(plugin):

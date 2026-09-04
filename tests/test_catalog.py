@@ -349,3 +349,40 @@ def test_a_disabled_plugin_is_searchable_by_name(fake):
         names={"dad_jokes": "Dad Jokes"},
     ))
     assert len(variable_catalog("generative_dashboard", 15, query="dad")) == 1
+
+
+def test_eligible_refs_returns_everything_watchable(fake):
+    fake(FakeRegistry(
+        metadata={"weather": {
+            "temp": {"description": "", "max_length": 6, "group": "", "preview": "61F"},
+            "forecast": {"description": "", "max_length": 200, "group": "", "preview": "x"},
+        }},
+        names={"weather": "Weather"},
+    ))
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    # The 200-char forecast cannot go in an 11-cell tile.
+    assert eligible_refs("generative_dashboard", 11) == ["weather.temp"]
+
+
+def test_eligible_refs_never_includes_our_own_variables(fake):
+    fake(FakeRegistry(
+        metadata={"generative_dashboard": {
+            "headline": {"description": "", "max_length": 6, "group": "", "preview": ""}}},
+        names={"generative_dashboard": "Generative Dashboard"},
+    ))
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    assert eligible_refs("generative_dashboard", 11) == []
+
+
+def test_eligible_refs_ignores_disabled_plugins(fake):
+    fake(FakeRegistry(
+        metadata={},
+        installed={"dad_jokes": {"joke": {}}},
+        names={"dad_jokes": "Dad Jokes"},
+    ))
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    # A disabled plugin publishes no values, so there is nothing to watch.
+    assert eligible_refs("generative_dashboard", 11) == []

@@ -185,6 +185,20 @@ def variable_catalog(
     return [c for c in usable + unusable if _matches(c, needle)]
 
 
+def eligible_refs(exclude_plugin_id: str, max_value_width: int) -> list[str]:
+    """Every variable that could actually be put on a board right now.
+
+    This is the default watchlist. Asking a user to hand-pick a pool only
+    duplicates the model's own job — choosing what matters is the whole point
+    of the plugin — so the picker exists to *narrow* this, not to build it.
+    """
+    return [
+        choice.ref
+        for choice in variable_catalog(exclude_plugin_id, max_value_width)
+        if not choice.disabled
+    ]
+
+
 def _disabled_plugin_ids(registry: Any, enabled: set[str]) -> set[str]:
     """Installed plugins that expose nothing because they are switched off."""
     try:

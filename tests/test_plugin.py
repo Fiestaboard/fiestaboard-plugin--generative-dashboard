@@ -41,13 +41,6 @@ def _spy_spawn(plugin, monkeypatch):
     return calls
 
 
-def test_unconfigured_watchlist_shows_the_setup_message(plugin):
-    plugin.config = dict(plugin.config, watchlist=[])
-    result = _fetch(plugin)
-    assert "SETTINGS" in " ".join(result.formatted_lines)
-    assert result.data["degraded"] == "unconfigured"
-
-
 def test_cold_start_renders_a_deterministic_grid_without_any_llm_call(plugin):
     result = _fetch(plugin)
     joined = " ".join(result.formatted_lines)
@@ -271,3 +264,30 @@ def test_concurrent_fetches_do_not_lose_the_previous_snapshot(plugin, monkeypatc
     _fetch(plugin)
     _fetch(plugin)
     assert captured[0]["air.aqi"] == "68"
+
+
+def test_an_empty_watchlist_watches_everything_eligible(plugin, monkeypatch):
+    # Curating a pool duplicates the model's own job. Empty means "everything".
+    monkeypatch.setattr(
+        catalog, "eligible_refs",
+        lambda exclude, width: ["air.aqi", "wx.temp", "sys.cpu"],
+    )
+    plugin.config = dict(plugin.config, watchlist=[])
+    assert plugin._watchlist(plugin.config) == ["air.aqi", "wx.temp", "sys.cpu"]
+
+
+def test_an_explicit_watchlist_still_narrows(plugin, monkeypatch):
+    monkeypatch.setattr(
+        catalog, "eligible_refs",
+        lambda exclude, width: ["air.aqi", "wx.temp", "sys.cpu"],
+    )
+    plugin.config = dict(plugin.config, watchlist=["air.aqi"])
+    assert plugin._watchlist(plugin.config) == ["air.aqi"]
+
+
+def test_with_nothing_enabled_anywhere_it_asks_for_plugins_not_variables(plugin, monkeypatch):
+    monkeypatch.setattr(catalog, "eligible_refs", lambda exclude, width: [])
+    plugin.config = dict(plugin.config, watchlist=[])
+    result = _fetch(plugin)
+    assert result.data["degraded"] == "unconfigured"
+    assert "PLUGIN" in " ".join(result.formatted_lines)

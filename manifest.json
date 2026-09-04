@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -21,8 +21,8 @@
       },
       "watchlist": {
         "type": "array",
-        "title": "Watched Variables",
-        "description": "The pool the dashboard chooses from. Watch more than fits on the board - picking what matters is the point.",
+        "title": "Watched Variables (optional)",
+        "description": "Leave empty to watch every variable your enabled plugins expose \u2014 choosing what matters is the model's job. Pick some only if you want to narrow the pool.",
         "items": {
           "type": "string"
         },
@@ -37,7 +37,7 @@
           "reorderable": true,
           "labels_field": "labels",
           "cache_seconds": 30,
-          "placeholder": "Search variables from your enabled plugins"
+          "placeholder": "Empty = watch everything. Search to narrow."
         }
       },
       "labels": {

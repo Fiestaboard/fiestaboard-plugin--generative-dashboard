@@ -44,29 +44,23 @@ In `grid` mode the plugin holds the model's *tile choice*, not finished lines,
 and substitutes values fresh on every render. So between generations your
 numbers stay live while their positions stay put.
 
-## Watch more than fits
+## There is nothing to configure
 
-The watchlist is a **candidate pool, not a display list.** Watching 60
-variables on a Flagship is the intended usage — only 12 tiles fit, and choosing
-among the candidates is the whole job. Board space is never the reason to keep
-the list short.
+Out of the box it watches **every variable your enabled plugins expose**. No
+picking, no list to curate. Choosing what matters is the model's entire job;
+making you pre-choose would just be doing that job twice, worse.
 
-The real cost is prompt size: roughly 40 tokens per watched variable. At the
-100-variable cap that is about 4k tokens per generation, which is comfortable
-for a hosted model and heavy for a small local one on a Pi.
+On a board with fourteen plugins enabled that is around 110 variables, roughly
+4-5k tokens per generation. Reading them costs about 4ms in steady state,
+because core already caches every plugin's data — only the first render after a
+restart pays to fill that cache.
 
-## Picking variables
-
-The settings picker is searchable and grouped by source plugin, and shows each
-variable's **current value** next to its name — so you select by recognising
-the number you already care about, not by typing `air_quality.aqi`.
-
-Drag to reorder; the order is a priority hint to the model. Variables that
-cannot be used are shown greyed with a reason rather than hidden — a value too
-wide for a tile, this plugin's own variables (a dashboard cannot watch itself),
-or a plugin you have not enabled yet. That last one matters: core only
-publishes variables for enabled plugins, so without this the picker would
-quietly omit most of what your board can do.
+Set a watchlist only if you want to **narrow** it: mute a noisy variable, or
+keep the board to one subject. The picker is searchable, names the owning
+plugin in every row, and shows each variable's current value in its tooltip.
+Variables that cannot be used appear greyed with the reason — too wide for a
+tile, this plugin's own output (a dashboard cannot watch itself), or a plugin
+you have not enabled yet.
 
 **Notes are the setting worth your time.** A note like *"over 100 is unhealthy,
 over 150 keep the windows shut"* is what turns the model's ranking from a guess
@@ -90,7 +84,7 @@ outage is never mistaken for a two-minute one.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `watchlist` | `[]` | The candidate pool. Max 100 |
+| `watchlist` | `[]` | Empty watches everything. Set it only to narrow |
 | `labels` | `{}` | Short board label per variable |
 | `pinned` | `[]` | Variables that must always appear |
 | `notes` | `{}` | What a variable means, per variable |

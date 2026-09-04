@@ -67,7 +67,7 @@ def test_outage_lines_still_carry_the_time_on_a_narrow_board():
 
 
 def test_setup_lines_tell_the_user_what_to_do():
-    assert "SETTINGS" in " ".join(setup_lines(geometry(6, 22)))
+    assert "PLUGIN" in " ".join(setup_lines(geometry(6, 22)))
 
 
 def test_setup_lines_fit_every_supported_board():
@@ -77,5 +77,5 @@ def test_setup_lines_fit_every_supported_board():
         assert all(len(line) <= geo.cols for line in lines)
 
 
-def test_setup_lines_mention_settings_even_on_a_narrow_board():
-    assert "SETTINGS" in " ".join(setup_lines(geometry(3, 15)))
+def test_setup_lines_stay_actionable_even_on_a_narrow_board():
+    assert "ENABLE" in " ".join(setup_lines(geometry(3, 15)))
