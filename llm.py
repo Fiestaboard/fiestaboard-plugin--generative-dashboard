@@ -103,6 +103,7 @@ def describe_variables(
     previous: dict[str, str],
     label_budget: int | None = None,
     wide_budget: int | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> str:
     """One line per variable: name, label, note, what it did, and how much
     room its label has once the value is placed.
@@ -126,6 +127,8 @@ def describe_variables(
             parts.append(f"label_max={max(0, budget - width - 1)}")
         if ref in previous and previous[ref] != current[ref]:
             parts.append(f'was="{previous[ref]}"')
+        if descriptions and descriptions.get(ref):
+            parts.append(f'desc="{descriptions[ref]}"')
         if notes.get(ref):
             parts.append(f'meaning="{notes[ref]}"')
         lines.append("- " + ", ".join(parts))
@@ -142,6 +145,7 @@ def _context_block(
     previous_board: list[str],
     now: "datetime | None" = None,
     journal: str = "",
+    descriptions: dict[str, str] | None = None,
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
     when = describe_now(now) if now is not None else ""
@@ -150,6 +154,7 @@ def _context_block(
         refs, labels, notes, current, previous,
         label_budget=column_inner(geo),
         wide_budget=geo.cols if geo.tile_columns > 1 else None,
+        descriptions=descriptions,
     )
     return (
         (f"RIGHT NOW: {when}.\n\n" if when else "")
@@ -177,6 +182,7 @@ def build_grid_prompt(
     extra_instructions: str,
     now: datetime | None = None,
     journal: str = "",
+    descriptions: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
@@ -193,7 +199,8 @@ def build_grid_prompt(
             f"{', '.join(ACCENT_COLORS)}.\n\n"
         )
         example = (
-            '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}], '
+            '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}, '
+            '{"label": "NOW", "variable": "wx.temp", "suffix": "F"}], '
             '"banner": "AIR QUALITY", "banner_color": "red", "headline": "AQI 168", '
             '"reason": "why you changed it", '
             '"log": "one line on how things stand, for your future self"}'
@@ -222,6 +229,16 @@ def build_grid_prompt(
         "is why some label_max values are generous.\n\n"
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
+        'A bare number is ambiguous: 62 what? Set "suffix" on a tile to the '
+        "unit its desc implies — F, %, MPH, KM, MI — so the board shows 62F "
+        "and 7.2MPH. No suffix for unitless values like counts or indexes.\n\n"
+        "Compose the board around ONE coherent theme — the weather story, the "
+        "market story, the transit story — chosen for the time of day and "
+        "what is actually happening. A themed board reads like a page; a "
+        "grab-bag of unrelated stats reads like noise. Off-theme stats earn a "
+        "slot only when they are genuinely urgent.\n\n"
+        "Keep labels in the same column the same length where you can — NOW, "
+        "LIKE, HIGH, LOW — so the values line up beneath each other.\n\n"
         "Some values mean nothing on their own. A ticker symbol without its "
         "price, a station name without its arrival time, a moon phase name "
         "without its illumination — anything that merely identifies what "
@@ -232,8 +249,8 @@ def build_grid_prompt(
         "with whatever a person would want to know first. EXAMPLE:\n"
         "  {red} AIR QUALITY {red}\n"
         "  AQI    168 PM25    89\n"
-        "  TEMP    62 HUMID   98\n"
-        "  WIND  10.7 VISIB 6.2MI\n\n"
+        "  NOW    62F RAIN   87%\n"
+        "  WIND 7.2MPH VIS 6.2MI\n\n"
         "Note what that example does with the ticker problem: if it showed a "
         "stock it would title the board GOOG and put the price beneath, rather "
         "than spending a tile on the word GOOG.\n\n"
@@ -259,7 +276,8 @@ def build_grid_prompt(
     return (
         _with_extra(system, extra_instructions),
         _context_block(
-            geo, refs, labels, notes, current, previous, previous_board, now, journal
+            geo, refs, labels, notes, current, previous, previous_board, now, journal,
+            descriptions,
         ),
     )
 
@@ -276,6 +294,7 @@ def build_prose_prompt(
     extra_instructions: str,
     now: datetime | None = None,
     journal: str = "",
+    descriptions: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
@@ -307,6 +326,7 @@ def build_prose_prompt(
     return (
         _with_extra(system, extra_instructions),
         _context_block(
-            geo, refs, labels, notes, current, previous, previous_board, now, journal
+            geo, refs, labels, notes, current, previous, previous_board, now, journal,
+            descriptions,
         ),
     )

@@ -53,6 +53,7 @@ class TileSpec:
     ref: str
     label: str
     color: str | None
+    suffix: str = ""  # unit appended to the value, e.g. "F" or " MPH"
 
 
 @dataclass(frozen=True)
@@ -331,7 +332,11 @@ class GenerativeDashboardPlugin(PluginBase):
 
         if specs:
             tiles = [
-                Tile(label=spec.label, value=values[spec.ref], color=spec.color)
+                Tile(
+                    label=spec.label,
+                    value=values[spec.ref] + spec.suffix,
+                    color=spec.color,
+                )
                 for spec in specs
                 if spec.ref in values
             ]
@@ -443,6 +448,7 @@ class GenerativeDashboardPlugin(PluginBase):
         mode = config.get("output_mode", "grid")
         labels = self._labels(config)
         notes = self._notes(config)
+        descriptions = catalog.variable_descriptions(watchlist)
         pinned = self._pinned(config)
         use_color = bool(config.get("use_color", True))
         extra = str(config.get("extra_instructions", "") or "")
@@ -456,13 +462,14 @@ class GenerativeDashboardPlugin(PluginBase):
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     extra_instructions=extra + suffix, now=datetime.now(), journal=journal,
+                    descriptions=descriptions,
                 )
             else:
                 system, user = build_grid_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
-                    now=datetime.now(), journal=journal,
+                    now=datetime.now(), journal=journal, descriptions=descriptions,
                 )
             try:
                 payload = client.complete(system, user)
@@ -488,7 +495,10 @@ class GenerativeDashboardPlugin(PluginBase):
                     labels=labels, geo=geo, use_color=use_color,
                 )
                 specs = [
-                    TileSpec(ref=ref, label=tile.label, color=tile.color)
+                    TileSpec(
+                        ref=ref, label=tile.label, color=tile.color,
+                        suffix=grid.suffixes.get(ref, ""),
+                    )
                     for ref, tile in zip(grid.refs, grid.tiles, strict=True)
                 ]
                 return Composition(

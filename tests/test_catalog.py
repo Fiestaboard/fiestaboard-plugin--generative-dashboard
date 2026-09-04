@@ -526,3 +526,36 @@ def test_color_variables_are_still_listed_in_the_picker_as_unusable(fake):
     choice = variable_catalog("generative_dashboard", 22)[0]
     assert choice.disabled
     assert "color" in choice.disabled_reason.lower()
+
+
+def test_variable_descriptions_come_from_manifests_only(monkeypatch):
+    """Descriptions tell the model what a number means ('Wind speed in MPH').
+
+    Like eligible_refs, this runs on the generation path, so it must never
+    touch get_all_variables_with_metadata (the recursion hazard).
+    """
+
+    class Exploding(FakeRegistry):
+        def get_all_variables_with_metadata(self):
+            raise AssertionError("descriptions must not build a template context")
+
+    registry = Exploding(
+        installed={"weather": {"wind": {"description": "Wind speed in MPH", "max_length": 5}}},
+        names={"weather": "Weather"},
+    )
+    registry._enabled_ids = {"weather"}
+    monkeypatch.setattr(catalog, "_registry", lambda: registry)
+
+    from plugins.generative_dashboard.catalog import variable_descriptions
+
+    assert variable_descriptions(["weather.wind"]) == {"weather.wind": "Wind speed in MPH"}
+
+
+def test_variable_descriptions_skips_refs_with_no_description(fake):
+    fake(FakeRegistry(
+        installed={"weather": {"wind": {"description": "", "max_length": 5}}},
+        names={"weather": "Weather"},
+    ))
+    from plugins.generative_dashboard.catalog import variable_descriptions
+
+    assert variable_descriptions(["weather.wind", "gone.x"]) == {}

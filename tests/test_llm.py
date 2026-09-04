@@ -271,3 +271,22 @@ def test_the_prompt_forbids_showing_an_identifier_on_its_own():
 def test_the_prompt_asks_for_restraint_with_color():
     system, _ = _prompt(build_grid_prompt, use_color=True)
     assert "at most" in system.lower()
+
+
+def test_describe_variables_includes_the_manifest_description():
+    text = describe_variables(
+        ["wx.wind"], {}, {}, {"wx.wind": "7.2"}, {},
+        descriptions={"wx.wind": "Wind speed in MPH"},
+    )
+    assert "Wind speed in MPH" in text
+
+
+def test_the_prompt_asks_for_units_on_bare_numbers():
+    system, _ = _prompt(build_grid_prompt)
+    assert "suffix" in system.lower()
+    assert "62F" in system or "unit" in system.lower()
+
+
+def test_the_prompt_asks_for_one_coherent_theme():
+    system, _ = _prompt(build_grid_prompt)
+    assert "theme" in system.lower() or "coherent" in system.lower()

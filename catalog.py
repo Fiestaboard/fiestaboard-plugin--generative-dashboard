@@ -231,6 +231,38 @@ def eligible_refs(exclude_plugin_id: str, max_value_width: int) -> list[str]:
     return refs
 
 
+def variable_descriptions(refs: "Sequence[str]") -> dict[str, str]:
+    """Manifest descriptions for *refs* — what each number means.
+
+    'Wind speed in MPH' tells the model both the meaning and the unit, which
+    is the difference between showing '7.2' and '7.2 MPH'. Manifest-only for
+    the same reason as :func:`eligible_refs`: this runs on the generation
+    path and must never fan out through the template context.
+    """
+    registry = _registry()
+    by_plugin: dict[str, list[str]] = defaultdict(list)
+    for ref in refs:
+        plugin_id, _, name = ref.partition(".")
+        if plugin_id and name:
+            by_plugin[plugin_id].append(name)
+
+    out: dict[str, str] = {}
+    for plugin_id, names in by_plugin.items():
+        try:
+            manifest = registry.get_manifest(plugin_id)
+        except Exception:
+            continue
+        variables = getattr(manifest, "variables", None)
+        if variables is None:
+            continue
+        for name in names:
+            meta = variables.get_variable_metadata(name)
+            description = str(getattr(meta, "description", "") or "")
+            if description:
+                out[f"{plugin_id}.{name}"] = description
+    return out
+
+
 def _disabled_plugin_ids(registry: Any, enabled: set[str]) -> set[str]:
     """Installed plugins that expose nothing because they are switched off."""
     try:

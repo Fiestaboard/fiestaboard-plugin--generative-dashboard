@@ -222,3 +222,30 @@ def test_grid_discards_an_invalid_banner_color():
 def test_banner_color_is_ignored_when_color_is_disabled():
     result = _validate(_grid(banner="X", banner_color="red"), use_color=False)
     assert result.banner_color is None
+
+
+def test_a_tile_suffix_becomes_part_of_the_value():
+    # "62" is ambiguous; "62F" is a temperature. The model supplies the unit.
+    payload = {"tiles": [{"label": "TEMP", "variable": "wx.temp", "suffix": "F"}]}
+    result = _validate(payload, values={"wx.temp": "62"}, watchlist=["wx.temp"])
+    assert result.tiles[0].value == "62F"
+    assert result.suffixes == {"wx.temp": "F"}
+
+
+def test_a_suffix_may_never_contain_a_digit():
+    # "62" + "9" would read as 629 — a number nobody measured.
+    payload = {"tiles": [{"label": "TEMP", "variable": "wx.temp", "suffix": "9F"}]}
+    result = _validate(payload, values={"wx.temp": "62"}, watchlist=["wx.temp"])
+    assert result.tiles[0].value == "62F"
+
+
+def test_a_suffix_is_sanitized_and_kept_short():
+    payload = {"tiles": [{"label": "W", "variable": "wx.w", "suffix": " miles/hour"}]}
+    result = _validate(payload, values={"wx.w": "7"}, watchlist=["wx.w"])
+    assert len(result.tiles[0].value) <= 1 + 5
+
+
+def test_no_suffix_leaves_the_value_alone():
+    result = _validate(_grid())
+    assert result.tiles[0].value == "168"
+    assert result.suffixes == {}

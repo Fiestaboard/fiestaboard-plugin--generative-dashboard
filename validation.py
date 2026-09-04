@@ -17,6 +17,9 @@ from .layout import Geometry, Tile, fits
 # A run of digits with internal separators: 42, 94,120, 1.25
 _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
+# Longest unit worth appending. " MPH" is 4; anything longer is prose.
+_MAX_SUFFIX = 5
+
 
 class ValidationError(Exception):
     """The model's answer cannot be shown, and should be retried or dropped."""
@@ -28,6 +31,7 @@ class GridResult:
     refs: list[str]  # source ref per tile, parallel to ``tiles``
     banner: str
     banner_color: str | None
+    suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
     headline: str
     reason: str
     log: str
@@ -53,6 +57,18 @@ def allowed_numbers(current: dict[str, str], previous: dict[str, str]) -> set[st
         for value in source.values():
             allowed.update(extract_numbers(str(value)))
     return allowed
+
+
+def clean_suffix(raw: object) -> str:
+    """Sanitize a unit suffix so it can never alter the number it follows.
+
+    Digits are removed outright: "62" + "9F" reading as 629F would be a
+    number nobody measured, which is the one thing this plugin promises
+    never to show.
+    """
+    text = sanitize(str(raw or ""))
+    text = re.sub(r"\d", "", text).rstrip()
+    return text[:_MAX_SUFFIX]
 
 
 def _as_dict(payload: object) -> dict:
@@ -86,6 +102,7 @@ def validate_grid(
 
     chosen: list[tuple[str, Tile]] = []
     seen: set[str] = set()
+    suffixes: dict[str, str] = {}
     for entry in raw_tiles:
         if not isinstance(entry, dict):
             continue
@@ -93,6 +110,9 @@ def validate_grid(
         if ref not in watched or ref in seen or ref not in values:
             continue
         color = str(entry.get("color") or "").lower()
+        suffix = clean_suffix(entry.get("suffix"))
+        if suffix:
+            suffixes[ref] = suffix
         chosen.append((
             ref,
             Tile(
@@ -101,7 +121,7 @@ def validate_grid(
                     or sanitize(str(entry.get("label") or ""))
                     or default_label(ref)
                 ),
-                value=values[ref],
+                value=values[ref] + suffix,
                 color=color if (use_color and color in ACCENT_COLORS) else None,
             ),
         ))
@@ -135,6 +155,7 @@ def validate_grid(
         refs=[ref for ref, _ in chosen],
         banner=banner,
         banner_color=banner_color,
+        suffixes=suffixes,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),
         # The log is prompt context, never board text, so it keeps its case

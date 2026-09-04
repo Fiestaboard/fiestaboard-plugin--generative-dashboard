@@ -365,3 +365,12 @@ def test_reloading_the_package_refreshes_its_submodules():
     sys.modules[f"{pkg}.catalog"].__marker__ = "stale"
     importlib.reload(sys.modules[pkg])
     assert not hasattr(sys.modules[f"{pkg}.catalog"], "__marker__")
+
+
+def test_suffixes_survive_the_live_re_render(plugin, monkeypatch):
+    # The unit must stay attached when values refresh between generations.
+    _fetch(plugin)
+    state = plugin._states["flagship"]
+    state.tiles = [TileSpec("air.aqi", "TEMP", None, suffix="F")]
+    _values(monkeypatch, {"air.aqi": "71", "wx.temp": "61F"})
+    assert "71F" in " ".join(_fetch(plugin).formatted_lines)
