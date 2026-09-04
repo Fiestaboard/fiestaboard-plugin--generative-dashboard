@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -337,5 +337,27 @@
         }
       ]
     }
-  }
+  },
+  "teaser": "TEMP 62 AQI 31",
+  "previews": [
+    {
+      "device_type": "flagship",
+      "rows": [
+        "SAN FRANCISCO WEATHER",
+        "{blue}WEATHER SAN FRANCISCO",
+        "TEMP    62 HUMID    98",
+        "WIND  10.7 VISIB 6.2MI",
+        "AQI     31 UV      0.2",
+        "TIME           6:28 PM"
+      ]
+    },
+    {
+      "device_type": "note",
+      "rows": [
+        "TEMP         62",
+        "AQI          31",
+        "TIME    6:28 PM"
+      ]
+    }
+  ]
 }

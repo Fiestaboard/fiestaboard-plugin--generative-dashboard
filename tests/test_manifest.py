@@ -115,3 +115,33 @@ def test_core_version_floor_is_one_this_plugin_actually_needs(raw):
     # newest core features relied on. The floor must not exceed the running
     # core or updates are silently held back (sources.py:643).
     assert raw["fiestaboard_version"].startswith(">=")
+
+
+def _tiles(line):
+    """Width in board tiles: a color marker is one flap, not its characters."""
+    import re
+    return len(re.sub(r"\{(?:[a-z]+|\d+)\}", "\x00", line, flags=re.I))
+
+
+def test_teaser_fits_the_narrowest_board(raw):
+    assert "teaser" in raw, "data plugins must declare a teaser"
+    assert _tiles(raw["teaser"]) <= 15
+
+
+def test_previews_cover_both_board_shapes(raw):
+    assert {p["device_type"] for p in raw["previews"]} >= {"flagship", "note"}
+
+
+def test_preview_rows_fit_their_board(raw):
+    limits = {"flagship": (22, 6), "note": (15, 3)}
+    for preview in raw["previews"]:
+        cols, rows = limits[preview["device_type"]]
+        assert len(preview["rows"]) <= rows, f"{preview['device_type']} has too many rows"
+        for line in preview["rows"]:
+            assert _tiles(line) <= cols, f"{line!r} is {_tiles(line)} tiles, max {cols}"
+
+
+def test_previews_are_literal_board_text(raw):
+    for preview in raw["previews"]:
+        for line in preview["rows"]:
+            assert "{{" not in line, "previews hold literal text, not variables"
