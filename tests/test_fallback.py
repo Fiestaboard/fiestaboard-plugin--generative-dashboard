@@ -79,3 +79,12 @@ def test_setup_lines_fit_every_supported_board():
 
 def test_setup_lines_stay_actionable_even_on_a_narrow_board():
     assert "ENABLE" in " ".join(setup_lines(geometry(3, 15)))
+
+
+def test_the_fallback_grid_also_skips_placeholder_values():
+    # The model is told to skip UNKNOWN; the deterministic grid must too.
+    tiles = deterministic_tiles(
+        ["a.x", "b.y", "c.z"], {},
+        {"a.x": "Unknown", "b.y": "62", "c.z": "N/A"}, [],
+    )
+    assert [t.value for t in tiles] == ["62"]

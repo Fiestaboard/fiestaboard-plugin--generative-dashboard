@@ -8,6 +8,10 @@ two-minute one.
 """
 
 from .catalog import default_label
+
+# Values that mean "no reading". The prompt tells the model to skip these;
+# the deterministic grid has no model, so it filters them itself.
+_PLACEHOLDERS = frozenset({"UNKNOWN", "N/A", "NA", "NONE", "NULL", "--", "-", ""})
 from .charset import truncate
 from .layout import Geometry, Tile, fits, wrap_center
 
@@ -39,7 +43,7 @@ def deterministic_tiles(
     return [
         Tile(label=labels.get(ref) or default_label(ref), value=values[ref])
         for ref in ranked
-        if ref in values
+        if ref in values and values[ref].strip().upper() not in _PLACEHOLDERS
     ]
 
 
