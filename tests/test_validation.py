@@ -315,3 +315,30 @@ def test_prefix_and_suffix_can_combine():
     payload = {"tiles": [{"label": "P", "variable": "st.p", "prefix": "$", "suffix": "M"}]}
     result = _validate(payload, watchlist=["st.p"], values={"st.p": "42"})
     assert result.tiles[0].value == "$42M"
+
+
+def test_headers_truncate_at_word_boundaries():
+    # "EQUITY AND FOREX UPDAT" reads as generated; a designed page would
+    # drop the word it cannot fit.
+    result = _validate(_grid(banner="EQUITY AND FOREX UPDATE FOR TODAY"))
+    assert not result.banner.endswith("UPDAT")
+    assert len(result.banner) <= 22
+    assert result.banner == "EQUITY AND FOREX"
+
+
+def test_a_header_with_one_giant_word_still_fits():
+    result = _validate(_grid(banner="A" * 30))
+    assert len(result.banner) == 22
+
+
+def test_a_label_that_is_a_prefix_of_its_value_is_blanked():
+    # "ALPHABE ALPHABET INC." — the truncated label echoed the value anyway.
+    payload = {"tiles": [{"label": "ALPHABET", "variable": "st.name"}]}
+    result = _validate(payload, watchlist=["st.name"], values={"st.name": "ALPHABET INC."})
+    assert result.tiles[0].label == ""
+
+
+def test_a_numeric_value_keeps_a_coincidental_label(  ):
+    payload = {"tiles": [{"label": "NOW", "variable": "wx.t", "suffix": "F"}]}
+    result = _validate(payload, watchlist=["wx.t"], values={"wx.t": "62"})
+    assert result.tiles[0].label == "NOW"

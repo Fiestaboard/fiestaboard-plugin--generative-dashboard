@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from .catalog import default_label
-from .charset import ACCENT_COLORS, sanitize, truncate
+from .charset import ACCENT_COLORS, cell_width, sanitize, truncate
 from .layout import Geometry, Tile, fits
 
 # A run of digits with internal separators: 42, 94,120, 1.25
@@ -73,6 +73,23 @@ def clean_suffix(raw: object) -> str:
     return text[:_MAX_SUFFIX]
 
 
+def trim_to_words(text: str, width: int) -> str:
+    """Fit *text* into *width* cells, dropping whole words before letters.
+
+    "EQUITY AND FOREX UPDAT" reads as generated; "EQUITY AND FOREX" reads as
+    chosen. Only a single word too long for the board gets cut mid-word.
+    """
+    if cell_width(text) <= width:
+        return text
+    kept: list[str] = []
+    for word in text.split():
+        candidate = " ".join(kept + [word])
+        if cell_width(candidate) > width:
+            break
+        kept.append(word)
+    return " ".join(kept) if kept else truncate(text, width)
+
+
 def apply_prefix(value: str, prefix: str) -> str:
     """Attach a currency-style prefix, but only to a bare number.
 
@@ -119,8 +136,8 @@ def validate_grid(
         raise ValidationError("Response had no 'tiles' list")
 
     watched = set(watchlist)
-    banner = truncate(sanitize(str(data.get("banner") or "")), geo.cols)
-    subtitle = truncate(sanitize(str(data.get("subtitle") or "")), geo.cols)
+    banner = trim_to_words(sanitize(str(data.get("banner") or "")), geo.cols)
+    subtitle = trim_to_words(sanitize(str(data.get("subtitle") or "")), geo.cols)
     banner_hue = str(data.get("banner_color") or "").lower()
     banner_color = banner_hue if (use_color and banner_hue in ACCENT_COLORS) else None
 
@@ -153,10 +170,15 @@ def validate_grid(
             or sanitize(str(entry.get("label") or ""))
             or default_label(ref)
         )
-        # "RAIN RAIN" tells you nothing twice: a label that merely echoes a
-        # text value is dropped, leaving the value to speak for itself.
-        if label_text.strip().upper() == str(values[ref]).strip().upper():
-            label_text = ""
+        # "RAIN RAIN" tells you nothing twice, and "ALPHABE ALPHABET INC."
+        # is the same echo wearing a truncation: for text values, a label
+        # that repeats the start of its value (or vice versa) is dropped and
+        # the value speaks for itself.
+        value_text = str(values[ref]).strip().upper()
+        label_up = label_text.strip().upper()
+        if label_up and not value_text[:1].isdigit():
+            if value_text.startswith(label_up) or label_up.startswith(value_text):
+                label_text = ""
         suffix = clean_suffix(entry.get("suffix"))
         if suffix and apply_suffix(values[ref], suffix) != values[ref]:
             suffixes[ref] = suffix
