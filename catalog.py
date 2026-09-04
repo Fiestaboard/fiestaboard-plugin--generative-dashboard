@@ -8,6 +8,8 @@ plugins the watchlist names avoids the problem by construction.
 
 import logging
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -233,11 +235,21 @@ def read_values(
     refs: Sequence[str],
     board: Any,
     exclude_plugin_id: str,
+    timeout: float = 5.0,
 ) -> dict[str, str]:
     """Current values for *refs*, fetching each source plugin exactly once.
 
-    Refs whose plugin is unavailable, or whose variable is absent, are omitted
-    rather than blanked — the gate reads that absence as a real change.
+    Fetched concurrently under a deadline. With every plugin enabled this can
+    be fifty-odd sources, several of them network-bound; done one after
+    another that overruns the fifteen seconds core allows a plugin during
+    ``build_template_context``, and an overrunning plugin is dropped from the
+    render context entirely — every one of its variables then renders as
+    "???" on the board.
+
+    Whatever has not arrived by the deadline is simply left out, exactly as
+    core does with slow plugins. Refs whose plugin is unavailable, or whose
+    variable is absent, are omitted rather than blanked — the gate reads that
+    absence as a real change.
     """
     wanted: dict[str, list[str]] = defaultdict(list)
     for ref in refs:
@@ -250,18 +262,36 @@ def read_values(
         return {}
 
     registry = _registry()
-    values: dict[str, str] = {}
-    for plugin_id, names in wanted.items():
-        try:
-            result = registry.fetch_plugin_data(plugin_id, board)
-        except Exception:
-            logger.warning("Failed reading %s for the dashboard", plugin_id, exc_info=True)
-            continue
-        if not getattr(result, "available", False) or not getattr(result, "data", None):
-            continue
-        for name in names:
-            raw = result.data.get(name)
-            if raw is None or isinstance(raw, list | dict):
+    executor = ThreadPoolExecutor(max_workers=min(8, len(wanted)))
+    try:
+        futures = {
+            executor.submit(registry.fetch_plugin_data, plugin_id, board): plugin_id
+            for plugin_id in wanted
+        }
+        done, not_done = futures_wait(futures, timeout=timeout)
+        if not_done:
+            logger.warning(
+                "%d plugin(s) did not answer within %.1fs and were left out of "
+                "the dashboard this cycle: %s",
+                len(not_done), timeout, [futures[f] for f in not_done],
+            )
+
+        values: dict[str, str] = {}
+        for future in done:
+            plugin_id = futures[future]
+            try:
+                result = future.result()
+            except Exception:
+                logger.warning("Failed reading %s for the dashboard", plugin_id, exc_info=True)
                 continue
-            values[f"{plugin_id}.{name}"] = str(raw)
-    return values
+            if not getattr(result, "available", False) or not getattr(result, "data", None):
+                continue
+            for name in wanted[plugin_id]:
+                raw = result.data.get(name)
+                if raw is None or isinstance(raw, list | dict):
+                    continue
+                values[f"{plugin_id}.{name}"] = str(raw)
+        return values
+    finally:
+        # Never block on stragglers; they finish into a discarded result.
+        executor.shutdown(wait=False, cancel_futures=True)

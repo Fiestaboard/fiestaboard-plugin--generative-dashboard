@@ -209,3 +209,16 @@ def test_an_over_long_value_does_not_take_its_neighbours_down():
     lines = _content(render_grid(tiles, geo))
     assert len(lines) == 1
     assert "42%" in lines[0]
+
+
+def test_a_tile_with_no_value_is_dropped():
+    # "AIR COLOR" with nothing beside it is noise, not a stat.
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("AIR COLOR", ""), Tile("CPU", "42%")], geo))
+    assert len(lines) == 1
+    assert "AIR COLOR" not in lines[0]
+
+
+def test_a_whitespace_only_value_is_also_dropped():
+    geo = geometry(6, 22)
+    assert _content(render_grid([Tile("X", "   ")], geo)) == []

@@ -7,11 +7,20 @@ world is quiet.
 """
 
 import logging
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+# An in-place update re-executes this file but leaves the package's other
+# modules in sys.modules from the previous version. A new __init__ then binds
+# to a stale catalog/layout/llm and the plugin dies with AttributeError on its
+# first fetch — which is what a user sees as "???" filling the board. Drop them
+# so the imports below always take the code that shipped with this file.
+for _stale in [_m for _m in list(sys.modules) if _m.startswith(__name__ + ".")]:
+    del sys.modules[_stale]
 
 from src.plugins.base import (
     Option,
@@ -24,7 +33,7 @@ from src.plugins.base import (
 
 from . import catalog, fallback, gate
 from .charset import sanitize
-from .layout import Geometry, Tile, geometry, render_grid, wrap_center
+from .layout import Geometry, Tile, geometry, placed_count, render_grid, wrap_center
 from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
 from .validation import ValidationError, validate_grid, validate_prose
 
@@ -304,12 +313,15 @@ class GenerativeDashboardPlugin(PluginBase):
             ]
             if tiles:
                 lines = render_grid(tiles, geo, banner=banner, use_color=use_color)
-                return lines, degraded, len(tiles)
+                return lines, degraded, placed_count(tiles, geo, banner)
 
         tiles = fallback.deterministic_tiles(
             watchlist, self._labels(config), values, self._pinned(config)
         )
-        return render_grid(tiles, geo, use_color=False), "no_llm", len(tiles)
+        # Nothing has been asked of the model yet when no board has rendered
+        # this plugin; calling that an LLM failure reads as an outage.
+        reason = "no_llm" if self.board is not None else "awaiting_board"
+        return render_grid(tiles, geo, use_color=False), reason, placed_count(tiles, geo)
 
     def _result(
         self, state: BoardState, lines: list[str], degraded: str, stat_count: int

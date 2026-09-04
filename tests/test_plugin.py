@@ -333,3 +333,35 @@ def test_thresholds_still_accept_the_old_map_form(plugin):
 def test_unparseable_threshold_rows_are_ignored(plugin):
     plugin.config = dict(plugin.config, thresholds=[{"variable": "a.b", "percent": "soon"}])
     assert plugin._thresholds(plugin.config) == {}
+
+
+def test_stat_count_reports_tiles_actually_placed(plugin, monkeypatch):
+    # Not the number of candidates: a 6x22 board fits 12, however many are watched.
+    many = {f"p.v{i}": str(i) for i in range(40)}
+    _values(monkeypatch, many)
+    plugin.config = dict(plugin.config, watchlist=list(many))
+    result = _fetch(plugin)
+    assert result.data["stat_count"] <= 12
+    assert result.data["stat_count"] == len([r for r in result.formatted_lines if r.strip()]) * 2
+
+
+def test_never_rendered_is_reported_differently_from_a_failed_model(plugin):
+    # board=None means no page has displayed this yet, so nothing was asked of
+    # the model. Calling that "no_llm" reads as an outage.
+    result = plugin.fetch_data()
+    assert result.data["degraded"] == "awaiting_board"
+
+
+def test_reloading_the_package_refreshes_its_submodules():
+    """An in-place update re-executes __init__.py but not its submodules.
+
+    Python keeps the old ones in sys.modules, so a new __init__ pairs with a
+    stale catalog and the plugin dies with AttributeError on the first fetch.
+    """
+    import importlib
+    import sys
+
+    pkg = "plugins.generative_dashboard"
+    sys.modules[f"{pkg}.catalog"].__marker__ = "stale"
+    importlib.reload(sys.modules[pkg])
+    assert not hasattr(sys.modules[f"{pkg}.catalog"], "__marker__")

@@ -433,3 +433,41 @@ def test_eligible_refs_never_builds_a_template_context(monkeypatch):
     from plugins.generative_dashboard.catalog import eligible_refs
 
     assert eligible_refs("generative_dashboard", 22) == ["weather.temp"]
+
+
+def test_read_values_fetches_plugins_concurrently_with_a_deadline(fake):
+    """58 enabled plugins fetched one after another blows core's 15s budget.
+
+    A plugin that exceeds the budget is dropped from the render context, and
+    every one of its variables renders as "???" on the board.
+    """
+    import time
+
+    class Slow(FakeRegistry):
+        def fetch_plugin_data(self, plugin_id, board=None):
+            time.sleep(0.4)
+            return FakeResult({"v": plugin_id})
+
+    fake(Slow(data={f"p{i}": {"v": str(i)} for i in range(8)}))
+    refs = [f"p{i}.v" for i in range(8)]
+    start = time.monotonic()
+    values = read_values(refs, None, "generative_dashboard", timeout=5.0)
+    elapsed = time.monotonic() - start
+    assert len(values) == 8
+    assert elapsed < 2.0, f"sequential fetch would take 3.2s, took {elapsed:.1f}s"
+
+
+def test_read_values_returns_what_arrived_before_the_deadline(fake):
+    import time
+
+    class Stuck(FakeRegistry):
+        def fetch_plugin_data(self, plugin_id, board=None):
+            if plugin_id == "slow":
+                time.sleep(30)
+            return FakeResult({"v": "ok"})
+
+    fake(Stuck(data={"fast": {"v": "ok"}, "slow": {"v": "ok"}}))
+    start = time.monotonic()
+    values = read_values(["fast.v", "slow.v"], None, "generative_dashboard", timeout=1.0)
+    assert time.monotonic() - start < 3.0
+    assert values == {"fast.v": "ok"}

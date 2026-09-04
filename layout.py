@@ -91,6 +91,28 @@ def _render_tile(tile: Tile, width: int, use_color: bool) -> str:
     return prefix + label + (" " * max(0, gap)) + value
 
 
+def placed_count(tiles: list[Tile], geo: Geometry, banner: str = "") -> int:
+    """How many of *tiles* actually reach the board.
+
+    Watching forty variables does not mean forty are shown; the board fits
+    what it fits, and the count that matters is the one on screen.
+    """
+    rows = geo.rows - (1 if banner else 0)
+    usable = [
+        t for t in tiles
+        if sanitize(t.value).strip() and fits_board(t.value, geo)
+    ][: geo.tile_columns * rows]
+    used = 0
+    placed = 0
+    for tile in usable:
+        cost = geo.tile_columns if needs_full_row(tile.value, geo) else 1
+        if used + cost > geo.tile_columns * rows:
+            break
+        used += cost
+        placed += 1
+    return placed
+
+
 def render_grid(
     tiles: list[Tile],
     geo: Geometry,
@@ -122,6 +144,9 @@ def render_grid(
     for tile in placed:
         if len(lines) >= geo.rows:
             break
+        if not sanitize(tile.value).strip():
+            # A label with nothing beside it is noise, not a stat.
+            continue
         if not fits_board(tile.value, geo):
             continue
         # A value too long to leave room for a label gets the whole row, rather
