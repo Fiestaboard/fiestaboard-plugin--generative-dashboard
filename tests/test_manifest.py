@@ -102,3 +102,16 @@ def test_output_mode_enum_matches_the_code(raw):
     from plugins.generative_dashboard import OUTPUT_MODES
 
     assert raw["settings_schema"]["properties"]["output_mode"]["enum"] == list(OUTPUT_MODES)
+
+
+def test_version_is_semver(raw):
+    import re
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", raw["version"]), raw["version"]
+
+
+def test_core_version_floor_is_one_this_plugin_actually_needs(raw):
+    # remote-options with server_search/reorderable, and get_options, are the
+    # newest core features relied on. The floor must not exceed the running
+    # core or updates are silently held back (sources.py:643).
+    assert raw["fiestaboard_version"].startswith(">=")
