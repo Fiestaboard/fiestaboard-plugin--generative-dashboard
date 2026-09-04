@@ -9,6 +9,22 @@ without this plugin hard-coding any of those rules.
 
 from datetime import datetime
 
+
+def local_now() -> datetime:
+    """The current time where the board actually hangs.
+
+    ``datetime.now()`` inside the container is UTC, which told a Pacific
+    board it was 3 AM at dinner time. Core's TimeService carries the user's
+    configured timezone; fall back to the system clock only when running
+    outside core (unit tests, tooling).
+    """
+    try:
+        from src.time_service import get_time_service
+
+        return get_time_service().get_current_time()
+    except Exception:
+        return datetime.now()
+
 # Meteorological seasons, northern hemisphere. Close enough for "is it
 # reasonable to care about the surf right now".
 _SEASONS = {

@@ -33,10 +33,17 @@ from src.plugins.base import (
 
 from . import catalog, fallback, gate
 from .journal import Journal
+from .when import local_now
 from .charset import sanitize
 from .layout import Geometry, Tile, geometry, placed_count, render_grid, wrap_center
 from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
-from .validation import ValidationError, apply_suffix, validate_grid, validate_prose
+from .validation import (
+    ValidationError,
+    apply_prefix,
+    apply_suffix,
+    validate_grid,
+    validate_prose,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +61,7 @@ class TileSpec:
     label: str
     color: str | None
     suffix: str = ""  # unit appended to the value, e.g. "F" or " MPH"
+    prefix: str = ""  # currency-style prefix, e.g. "$"
 
 
 @dataclass(frozen=True)
@@ -265,7 +273,7 @@ class GenerativeDashboardPlugin(PluginBase):
             return self._result(state, lines, "no_data", 0)
 
         state.outage_index = -1
-        state.last_good = datetime.now().strftime("%H:%M")
+        state.last_good = local_now().strftime("%H:%M")
 
         changed = gate.material_changes(
             state.values,
@@ -337,7 +345,9 @@ class GenerativeDashboardPlugin(PluginBase):
             tiles = [
                 Tile(
                     label=spec.label,
-                    value=apply_suffix(values[spec.ref], spec.suffix),
+                    value=apply_prefix(
+                        apply_suffix(values[spec.ref], spec.suffix), spec.prefix
+                    ),
                     color=spec.color,
                 )
                 for spec in specs
@@ -435,11 +445,11 @@ class GenerativeDashboardPlugin(PluginBase):
             state.prose = outcome.prose
             state.headline = outcome.headline
             state.reason = outcome.reason
-            state.journal.add(datetime.now().strftime("%H:%M"), outcome.log)
+            state.journal.add(local_now().strftime("%H:%M"), outcome.log)
             state.failures = 0
             state.stale = False
             state.degraded = ""
-            state.generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            state.generated_at = local_now().strftime("%Y-%m-%dT%H:%M:%S")
 
     def _generate(self, geo, config, watchlist, current, previous, previous_board, journal=""):
         """One generation attempt, with a single stricter retry."""
@@ -465,7 +475,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 system, user = build_prose_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
-                    extra_instructions=extra + suffix, now=datetime.now(), journal=journal,
+                    extra_instructions=extra + suffix, now=local_now(), journal=journal,
                     descriptions=descriptions,
                 )
             else:
@@ -473,7 +483,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
-                    now=datetime.now(), journal=journal, descriptions=descriptions,
+                    now=local_now(), journal=journal, descriptions=descriptions,
                 )
             try:
                 payload = client.complete(system, user)
@@ -503,6 +513,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     TileSpec(
                         ref=ref, label=tile.label, color=tile.color,
                         suffix=grid.suffixes.get(ref, ""),
+                        prefix=grid.prefixes.get(ref, ""),
                     )
                     for ref, tile in zip(grid.refs, grid.tiles, strict=True)
                 ]

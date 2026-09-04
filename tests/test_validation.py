@@ -296,3 +296,22 @@ def test_a_label_that_echoes_its_text_value_is_blanked():
     result = _validate(payload, watchlist=["wx.sky"], values={"wx.sky": "RAIN"})
     assert result.tiles[0].label == ""
     assert result.tiles[0].value == "RAIN"
+
+
+def test_a_currency_prefix_attaches_before_the_value():
+    from plugins.generative_dashboard.validation import apply_prefix
+
+    assert apply_prefix("339.08", "$") == "$339.08"
+    assert apply_prefix("CLEAR", "$") == "CLEAR"  # only bare numbers take one
+
+
+def test_a_prefix_may_never_contain_a_digit():
+    payload = {"tiles": [{"label": "PRICE", "variable": "st.p", "prefix": "1$"}]}
+    result = _validate(payload, watchlist=["st.p"], values={"st.p": "339.08"})
+    assert result.tiles[0].value == "$339.08"
+
+
+def test_prefix_and_suffix_can_combine():
+    payload = {"tiles": [{"label": "P", "variable": "st.p", "prefix": "$", "suffix": "M"}]}
+    result = _validate(payload, watchlist=["st.p"], values={"st.p": "42"})
+    assert result.tiles[0].value == "$42M"

@@ -190,13 +190,15 @@ def build_grid_prompt(
     """System and user prompts for tile-based composition."""
     if use_color:
         colour_rule = (
-            'Set "color" on a tile to show the *level* of that stat, not merely '
-            "that it changed: green when a reading is good or low, yellow or "
-            "orange as it climbs, red when it is bad or high, blue for cold. A "
-            "UV index, an air quality number or a pollen count all read this way. "
-            "Leave a stat uncolored when its level means nothing — a clock, a "
-            "date and a ticker have no level. Color at most three tiles; a board "
-            "where everything is colored says nothing at all.\n\n"
+            'Set "color" on a tile to show the *level* of that stat: green when '
+            "a reading is good or low, yellow or orange as it climbs, red when "
+            "it is bad or high, blue for cold. It renders as a small status "
+            "tile beside the value, like an indicator light — color is data on "
+            "this board, never decoration. A UV index, an air quality number or "
+            "a pollen count all read this way. Leave a stat uncolored when its "
+            "level means nothing — a clock, a date and a ticker have no level. "
+            "Color at most three tiles; a board where everything is colored "
+            "says nothing at all.\n\n"
             'Set "banner_color" to color the title itself, which is where color '
             "reads best of all. Valid colors: "
             f"{', '.join(ACCENT_COLORS)}.\n\n"
@@ -235,8 +237,9 @@ def build_grid_prompt(
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
         'A bare number is ambiguous: 62 what? Set "suffix" on a tile to the '
-        "unit its desc implies — F, %, MPH, KM, MI, MIN — so the board shows 62F "
-        "and 7.2MPH. Time spans especially: a bare 4 could be four minutes or "
+        "unit its desc implies — F, %, MPH, KM, MI, MIN — and \"prefix\" for "
+        "currency, so the board shows 62F and $339.08 rather than bare "
+        "numbers. Time spans especially: a bare 4 could be four minutes or "
         "four trains, so write 4MIN. No suffix for unitless counts or indexes, "
         "and none for values that already carry their unit.\n\n"
         "Compose the board around ONE coherent theme — the weather story, the "
@@ -263,7 +266,7 @@ def build_grid_prompt(
         "  {blue} LIGHT RAIN, 8 AM {blue}\n"
         "  NOW    62F RAIN   87%\n"
         "  LIKE   61F WIND 7.2MPH\n"
-        "  HIGH   67F UV      0.1\n"
+        "  HIGH  67F UV   0.1{green}\n"
         "  LOW    59F SET 7:36 PM\n\n"
         "PATTERN ALERT — when one thing dominates. Title names the problem, "
         "subtitle says what to do, stats support it:\n"

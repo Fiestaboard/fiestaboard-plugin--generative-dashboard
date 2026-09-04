@@ -67,9 +67,12 @@ def test_render_grid_leaves_a_gutter_between_columns():
     assert _content(lines)[0] == "A" + " " * 8 + "1" + " " + "B" + " " * 9 + "2"
 
 
-def test_render_grid_prefixes_a_color_marker_when_a_tile_is_accented():
+def test_color_renders_as_a_status_dot_after_the_value():
+    # Color is data — an indicator light beside the reading — never part of
+    # the label. A prefix shifts colored labels out of column with the rest.
     lines = render_grid([Tile("AQI", "168", "red")], geometry(3, 15))
-    assert _content(lines)[0].startswith("{red}")
+    assert _content(lines)[0].endswith("168{red}")
+    assert not _content(lines)[0].startswith("{red}")
 
 
 def test_render_grid_omits_color_when_color_is_disabled():
@@ -80,6 +83,26 @@ def test_render_grid_omits_color_when_color_is_disabled():
 def test_colored_tile_still_occupies_exactly_the_board_width():
     lines = render_grid([Tile("AQI", "168", "red")], geometry(3, 15), use_color=True)
     assert cell_width(_content(lines)[0]) == 15
+
+
+def test_the_dot_column_is_reserved_uniformly_once_any_tile_is_colored():
+    # If one reading gets a dot, every value shifts one cell left so the
+    # numbers still sit in a straight column — presence of color must never
+    # change where the data lives.
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("AQI", "168", "red"), Tile("NOW", "62F")], geo))
+    dotted = lines[0]
+    plain = lines[1]
+    assert dotted.endswith("{red}")
+    # Same rightmost data column on both rows: strip the dot, compare ends.
+    assert cell_width(dotted) - 1 == len(plain.rstrip())
+
+
+def test_no_colors_means_no_reserved_column():
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("CPU", "42%")], geo))
+    assert lines[0].endswith("42%")
+    assert len(lines[0]) == 15
 
 
 def test_render_grid_puts_the_banner_above_the_tiles():

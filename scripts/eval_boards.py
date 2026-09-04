@@ -151,7 +151,8 @@ def judge_grid(result, lines, scenario, geo):
     unit_words = re.compile(r"MPH|Fahrenheit|percent|USD|minutes|distance", re.I)
     owed = [
         t for t, r in zip(result.tiles, result.refs)
-        if unit_words.search(DESC.get(r, "")) and t.value and t.value[-1].isdigit()
+        if unit_words.search(DESC.get(r, "")) and t.value
+        and t.value[-1].isdigit() and t.value[0].isdigit()
     ]
     checks["units"] = len(owed) <= 1
     # UV is an honest two-character label; one character is a truncation stub.

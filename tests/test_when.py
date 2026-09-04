@@ -50,3 +50,26 @@ def test_a_weekend_morning_is_not_a_commute():
 def test_midnight_and_noon_read_correctly():
     assert "12:00 AM" in _at(2026, 9, 3, 0)
     assert "12:00 PM" in _at(2026, 9, 3, 12)
+
+
+def test_local_now_uses_the_apps_configured_timezone():
+    # datetime.now() inside the container is UTC; the board lives in the
+    # user's timezone. 3 AM UTC told a PST board it was early morning at
+    # dinner time.
+    from src.time_service import get_time_service
+
+    from plugins.generative_dashboard.when import local_now
+
+    ours = local_now()
+    theirs = get_time_service().get_current_time()
+    assert ours.tzinfo is not None
+    assert abs((ours - theirs).total_seconds()) < 5
+
+
+def test_local_now_survives_a_missing_time_service(monkeypatch):
+    import sys
+
+    from plugins.generative_dashboard import when
+
+    monkeypatch.setitem(sys.modules, "src.time_service", None)
+    assert when.local_now() is not None

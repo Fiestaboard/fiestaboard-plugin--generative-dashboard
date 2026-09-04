@@ -79,16 +79,22 @@ def geometry(rows: int, cols: int) -> Geometry:
     )
 
 
-def _render_tile(tile: Tile, width: int, use_color: bool) -> str:
-    """Render one tile into exactly *width* cells."""
-    prefix = "{" + tile.color.lower() + "}" if (use_color and tile.color) else ""
+def _render_tile(tile: Tile, width: int, use_color: bool, reserve_dot: bool = False) -> str:
+    """Render one tile into exactly *width* cells.
 
-    inner = width - cell_width(prefix)
+    Color is data, not label decoration: it renders as a status dot after the
+    value, the way an indicator light sits beside a reading. When any tile in
+    the grid is colored, *every* tile reserves the dot cell — presence of
+    color must never change which column the numbers sit in.
+    """
+    dot = "{" + tile.color.lower() + "}" if (use_color and tile.color and reserve_dot) else ""
+
+    inner = width - (1 if reserve_dot else 0)
     value = truncate(sanitize(tile.value), inner)
     # The label yields first: a shortened name beats a shortened number.
     label = truncate(sanitize(tile.label), max(0, inner - cell_width(value) - 1))
     gap = inner - cell_width(label) - cell_width(value)
-    return prefix + label + (" " * max(0, gap)) + value
+    return label + (" " * max(0, gap)) + value + (dot or (" " if reserve_dot else ""))
 
 
 def placed_count(
@@ -158,6 +164,10 @@ def render_grid(
     grid_rows = geo.rows - len(lines)
     placed = list(tiles[: geo.tile_columns * grid_rows])
 
+    # One rule for the whole board: a dot column exists for everyone or for
+    # no one, so colored and plain rows keep their values aligned.
+    reserve_dot = use_color and any(t.color for t in tiles)
+
     def flush(buffer: list[Tile]) -> None:
         cells = [
             # Every column but the last gives up one cell as a gutter.
@@ -165,6 +175,7 @@ def render_grid(
                 tile,
                 geo.tile_width if column == geo.tile_columns - 1 else geo.tile_width - 1,
                 use_color,
+                reserve_dot,
             )
             for column, tile in enumerate(buffer)
         ]
@@ -186,7 +197,7 @@ def render_grid(
                 flush(buffer)
                 buffer = []
             if len(lines) < geo.rows:
-                lines.append(_render_tile(tile, geo.cols, use_color).rstrip())
+                lines.append(_render_tile(tile, geo.cols, use_color, reserve_dot).rstrip())
             continue
         buffer.append(tile)
         if len(buffer) == geo.tile_columns:

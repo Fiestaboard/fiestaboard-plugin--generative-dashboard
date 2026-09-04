@@ -33,6 +33,7 @@ class GridResult:
     banner_color: str | None
     subtitle: str
     suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
+    prefixes: dict[str, str]  # currency-style prefix per ref, e.g. {"st.p": "$"}
     headline: str
     reason: str
     log: str
@@ -70,6 +71,16 @@ def clean_suffix(raw: object) -> str:
     text = sanitize(str(raw or ""))
     text = re.sub(r"\d", "", text).rstrip()
     return text[:_MAX_SUFFIX]
+
+
+def apply_prefix(value: str, prefix: str) -> str:
+    """Attach a currency-style prefix, but only to a bare number.
+
+    "$339.08" reads as designed; "$CLEAR" reads as broken.
+    """
+    if not prefix or not value or not value[0].isdigit():
+        return value
+    return prefix + value
 
 
 def apply_suffix(value: str, suffix: str) -> str:
@@ -129,6 +140,7 @@ def validate_grid(
     chosen: list[tuple[str, Tile]] = []
     seen: set[str] = set()
     suffixes: dict[str, str] = {}
+    prefixes: dict[str, str] = {}
     for entry in raw_tiles:
         if not isinstance(entry, dict):
             continue
@@ -150,11 +162,16 @@ def validate_grid(
             suffixes[ref] = suffix
         else:
             suffix = ""
+        prefix = clean_suffix(entry.get("prefix"))[:2]
+        if prefix and apply_prefix(values[ref], prefix) != values[ref]:
+            prefixes[ref] = prefix
+        else:
+            prefix = ""
         chosen.append((
             ref,
             Tile(
                 label=label_text,
-                value=apply_suffix(values[ref], suffix) if suffix else values[ref],
+                value=apply_prefix(apply_suffix(values[ref], suffix), prefix),
                 color=color if (use_color and color in ACCENT_COLORS) else None,
             ),
         ))
@@ -190,6 +207,7 @@ def validate_grid(
         banner_color=banner_color,
         subtitle=subtitle,
         suffixes=suffixes,
+        prefixes=prefixes,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),
         # The log is prompt context, never board text, so it keeps its case
