@@ -249,8 +249,9 @@ def test_the_model_is_asked_to_record_what_it_sees():
 
 
 def test_the_grid_prompt_shows_an_example_of_a_good_board():
+    # Superseded by named patterns; the exemplars are the examples now.
     system, _ = _prompt(build_grid_prompt)
-    assert "EXAMPLE" in system.upper()
+    assert "PATTERN" in system.upper()
 
 
 def test_the_prompt_explains_color_as_intensity_not_just_change():
@@ -319,3 +320,19 @@ def test_prose_is_given_a_target_length_not_just_a_cap():
     # "At most 112, be brief" produced 26-character stubs.
     system, _ = _prompt(build_prose_prompt)
     assert "aim for" in system.lower() or "two or three" in system.lower()
+
+
+def test_the_grid_prompt_offers_named_design_patterns():
+    system, _ = _prompt(build_grid_prompt)
+    assert "PAGE" in system and "ALERT" in system
+
+
+def test_the_grid_prompt_shows_a_two_row_header_in_its_example():
+    system, _ = _prompt(build_grid_prompt)
+    assert "subtitle" in system.lower()
+
+
+def test_the_grid_prompt_extends_the_number_rule_to_headers():
+    system, _ = _prompt(build_grid_prompt)
+    lowered = system.lower()
+    assert "banner" in lowered and ("digits" in lowered or "numbers" in lowered)

@@ -256,3 +256,43 @@ def test_a_banner_too_wide_to_frame_keeps_its_text():
                                 banner_color="red"))[0]
     assert "AIR QUALITY BAD" in line
     assert cell_width(line) <= 15
+
+
+def test_a_banner_gets_double_frame_tiles_when_there_is_room():
+    # The handmade reference frames its title {69}{69} ... {69}{69} — the
+    # double frame is part of why it reads as designed rather than generated.
+    geo = geometry(6, 22)
+    line = _content(render_grid([Tile("CPU", "42%")], geo, banner="WEATHER",
+                                banner_color="blue"))[0].strip()
+    assert line.startswith("{blue}{blue}")
+    assert line.endswith("{blue}{blue}")
+
+
+def test_a_long_banner_falls_back_to_single_frame_then_plain():
+    geo = geometry(3, 15)
+    line = _content(render_grid([Tile("A", "1")], geo, banner="AIR QUALITY",
+                                banner_color="red"))[0].strip()
+    assert line.startswith("{red}") and not line.startswith("{red}{red}")
+
+
+def test_a_subtitle_renders_under_the_banner_with_single_frame():
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("NOW", "62F")], geo, banner="SAN FRANCISCO",
+                                 banner_color="blue", subtitle="THU 8:15 AM"))
+    assert "SAN FRANCISCO" in lines[0]
+    assert "THU 8:15 AM" in lines[1]
+    assert lines[1].strip().startswith("{blue}") and not lines[1].strip().startswith("{blue}{blue}")
+    assert "NOW" in lines[2]
+
+
+def test_a_subtitle_without_a_banner_is_ignored():
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("NOW", "62F")], geo, subtitle="ORPHAN"))
+    assert all("ORPHAN" not in l for l in lines)
+
+
+def test_header_rows_reduce_the_tile_capacity():
+    geo = geometry(6, 22)
+    tiles = [Tile(f"L{i}", str(i)) for i in range(12)]
+    lines = render_grid(tiles, geo, banner="HEAD", subtitle="SUB")
+    assert "L8" not in "".join(lines)  # 4 rows x 2 columns = 8 tiles max

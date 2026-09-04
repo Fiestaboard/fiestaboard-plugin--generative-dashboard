@@ -266,3 +266,33 @@ def test_a_suffix_applies_only_to_values_ending_in_a_digit():
     assert apply_suffix("62", "F") == "62F"
     assert apply_suffix("100", "%") == "100%"
     assert apply_suffix("CLEAR", "F") == "CLEAR"
+
+
+def test_banner_numbers_must_come_from_the_supplied_values():
+    # The tiles cannot lie, but a banner saying AQI 999 EMERGENCY could.
+    with pytest.raises(ValidationError):
+        _validate(_grid(banner="AQI 999 EMERGENCY"))
+
+
+def test_banner_numbers_that_match_a_value_pass():
+    assert _validate(_grid(banner="AQI 168 WARNING")).banner == "AQI 168 WARNING"
+
+
+def test_subtitle_is_validated_the_same_way():
+    result = _validate(_grid(banner="AIR", subtitle="AQI NOW 168"))
+    assert result.subtitle == "AQI NOW 168"
+    with pytest.raises(ValidationError):
+        _validate(_grid(banner="AIR", subtitle="AQI 999"))
+
+
+def test_previous_values_are_fair_game_in_a_banner():
+    result = _validate(_grid(banner="AQI ROSE FROM 31"), previous={"air.aqi": "31"})
+    assert "31" in result.banner
+
+
+def test_a_label_that_echoes_its_text_value_is_blanked():
+    # RAIN RAIN tells you nothing twice.
+    payload = {"tiles": [{"label": "RAIN", "variable": "wx.sky"}]}
+    result = _validate(payload, watchlist=["wx.sky"], values={"wx.sky": "RAIN"})
+    assert result.tiles[0].label == ""
+    assert result.tiles[0].value == "RAIN"

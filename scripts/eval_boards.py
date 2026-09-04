@@ -136,16 +136,28 @@ def judge_grid(result, lines, scenario, geo):
     checks = {}
     content = [l for l in lines if l.strip()]
     checks["fill"] = len(content) >= max(2, geo.rows // 2)
-    checks["title"] = bool(result.banner)
-    colored = sum(len(COLOR_MARKER_RE.findall(l)) for l in lines)
-    checks["color_restraint"] = colored <= 3 + (2 if result.banner_color else 0)
-    # bare numbers: tile values ending in a digit with no unit anywhere
-    bare = sum(
-        1 for t in result.tiles
-        if t.value and t.value[-1].isdigit() and not re.search(r"[A-Z%]", t.value)
+    # The bar is "nobody guesses it is generated": a designed page uses the
+    # whole board, and no tile echoes its own value.
+    checks["full_board"] = len(content) >= geo.rows - 1
+    checks["no_echo_label"] = not any(
+        t.label.strip() and t.label.strip().upper() == t.value.strip().upper()
+        for t in result.tiles
     )
-    checks["units"] = bare <= 2
-    checks["labels_honest"] = all(len(t.label.strip()) >= 3 for t in result.tiles)
+    checks["title"] = bool(result.banner)
+    # Header framing is design, not signalling — only tile accents count.
+    checks["color_restraint"] = sum(1 for t in result.tiles if t.color) <= 3
+    # A unit is owed only where the description names one; AQI and UV are
+    # honestly unitless.
+    unit_words = re.compile(r"MPH|Fahrenheit|percent|USD|minutes|distance", re.I)
+    owed = [
+        t for t, r in zip(result.tiles, result.refs)
+        if unit_words.search(DESC.get(r, "")) and t.value and t.value[-1].isdigit()
+    ]
+    checks["units"] = len(owed) <= 1
+    # UV is an honest two-character label; one character is a truncation stub.
+    checks["labels_honest"] = all(
+        len(t.label.strip()) >= 2 for t in result.tiles if t.label.strip()
+    )
     checks["no_double_unit"] = not any(
         re.search(r"(MI|MPH|KM|F|%)\1$", t.value) for t in result.tiles
     )
@@ -217,7 +229,8 @@ def run(endpoint, model, runs):
                                         values=scenario["current"], labels={},
                                         geo=geo, use_color=True)
                     board = render_grid(res.tiles, geo, banner=res.banner,
-                                        banner_color=res.banner_color)
+                                        banner_color=res.banner_color,
+                                        subtitle=res.subtitle)
                     checks = judge_grid(res, board, scenario, geo)
                 checks["validated"] = True
             except (LLMError, ValidationError) as exc:

@@ -31,6 +31,7 @@ class GridResult:
     refs: list[str]  # source ref per tile, parallel to ``tiles``
     banner: str
     banner_color: str | None
+    subtitle: str
     suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
     headline: str
     reason: str
@@ -98,6 +99,7 @@ def validate_grid(
     labels: dict[str, str],
     geo: Geometry,
     use_color: bool,
+    previous: dict[str, str] | None = None,
 ) -> GridResult:
     """Turn a model response into placeable tiles, or raise."""
     data = _as_dict(payload)
@@ -107,9 +109,21 @@ def validate_grid(
 
     watched = set(watchlist)
     banner = truncate(sanitize(str(data.get("banner") or "")), geo.cols)
+    subtitle = truncate(sanitize(str(data.get("subtitle") or "")), geo.cols)
     banner_hue = str(data.get("banner_color") or "").lower()
     banner_color = banner_hue if (use_color and banner_hue in ACCENT_COLORS) else None
-    body_rows = geo.rows - (1 if banner else 0)
+
+    # The tiles cannot show a wrong number — values are substituted, never
+    # typed — but a banner saying "AQI 999 EMERGENCY" could. Header text obeys
+    # the same rule as prose: only digits the stats actually contain.
+    allowed = allowed_numbers(values, previous or {})
+    for header in (banner, subtitle):
+        for token in extract_numbers(header):
+            if token not in allowed:
+                raise ValidationError(
+                    f"Header contains the number {token}, which was not supplied"
+                )
+    body_rows = geo.rows - (1 if banner else 0) - (1 if banner and subtitle else 0)
     capacity = max(1, geo.tile_columns * body_rows)
 
     chosen: list[tuple[str, Tile]] = []
@@ -122,6 +136,15 @@ def validate_grid(
         if ref not in watched or ref in seen or ref not in values:
             continue
         color = str(entry.get("color") or "").lower()
+        label_text = (
+            labels.get(ref)
+            or sanitize(str(entry.get("label") or ""))
+            or default_label(ref)
+        )
+        # "RAIN RAIN" tells you nothing twice: a label that merely echoes a
+        # text value is dropped, leaving the value to speak for itself.
+        if label_text.strip().upper() == str(values[ref]).strip().upper():
+            label_text = ""
         suffix = clean_suffix(entry.get("suffix"))
         if suffix and apply_suffix(values[ref], suffix) != values[ref]:
             suffixes[ref] = suffix
@@ -130,11 +153,7 @@ def validate_grid(
         chosen.append((
             ref,
             Tile(
-                label=(
-                    labels.get(ref)
-                    or sanitize(str(entry.get("label") or ""))
-                    or default_label(ref)
-                ),
+                label=label_text,
                 value=apply_suffix(values[ref], suffix) if suffix else values[ref],
                 color=color if (use_color and color in ACCENT_COLORS) else None,
             ),
@@ -169,6 +188,7 @@ def validate_grid(
         refs=[ref for ref, _ in chosen],
         banner=banner,
         banner_color=banner_color,
+        subtitle=subtitle,
         suffixes=suffixes,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),

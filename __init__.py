@@ -63,6 +63,7 @@ class Composition:
     tiles: list[TileSpec]
     banner: str
     banner_color: str | None
+    subtitle: str
     prose: str
     headline: str
     reason: str
@@ -76,6 +77,7 @@ class BoardState:
     tiles: list[TileSpec] = field(default_factory=list)
     banner: str = ""
     banner_color: str | None = None
+    subtitle: str = ""
     prose: str = ""
     values: dict[str, str] = field(default_factory=dict)
     previous: dict[str, str] = field(default_factory=dict)
@@ -325,6 +327,7 @@ class GenerativeDashboardPlugin(PluginBase):
             specs = list(state.tiles)
             banner, prose = state.banner, state.prose
             banner_hue = state.banner_color
+            subtitle = state.subtitle
             stale, degraded = state.stale, state.degraded
 
         if config.get("output_mode", "grid") == "prose" and prose and not stale:
@@ -343,9 +346,9 @@ class GenerativeDashboardPlugin(PluginBase):
             if tiles:
                 lines = render_grid(
                     tiles, geo, banner=banner, use_color=use_color,
-                    banner_color=banner_hue,
+                    banner_color=banner_hue, subtitle=subtitle,
                 )
-                return lines, degraded, placed_count(tiles, geo, banner)
+                return lines, degraded, placed_count(tiles, geo, banner, subtitle)
 
         tiles = fallback.deterministic_tiles(
             watchlist, self._labels(config), values, self._pinned(config)
@@ -428,6 +431,7 @@ class GenerativeDashboardPlugin(PluginBase):
             state.tiles = outcome.tiles
             state.banner = outcome.banner
             state.banner_color = outcome.banner_color
+            state.subtitle = outcome.subtitle
             state.prose = outcome.prose
             state.headline = outcome.headline
             state.reason = outcome.reason
@@ -487,12 +491,13 @@ class GenerativeDashboardPlugin(PluginBase):
                         payload, geo=geo, current=current, previous=previous
                     )
                     return Composition(
-                        tiles=[], banner="", banner_color=None, prose=result.text,
+                        tiles=[], banner="", banner_color=None, subtitle="",
+                        prose=result.text,
                         headline=result.headline, reason=result.reason, log=result.log,
                     )
                 grid = validate_grid(
                     payload, watchlist=watchlist, pinned=pinned, values=current,
-                    labels=labels, geo=geo, use_color=use_color,
+                    labels=labels, geo=geo, use_color=use_color, previous=previous,
                 )
                 specs = [
                     TileSpec(
@@ -503,7 +508,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 ]
                 return Composition(
                     tiles=specs, banner=grid.banner, banner_color=grid.banner_color,
-                    prose="", headline=grid.headline, reason=grid.reason, log=grid.log,
+                    subtitle=grid.subtitle, prose="", headline=grid.headline,
+                    reason=grid.reason, log=grid.log,
                 )
             except ValidationError as exc:
                 logger.warning(

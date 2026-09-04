@@ -204,7 +204,8 @@ def build_grid_prompt(
         example = (
             '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}, '
             '{"label": "NOW", "variable": "wx.temp", "suffix": "F"}], '
-            '"banner": "AIR QUALITY", "banner_color": "red", "headline": "AQI 168", '
+            '"banner": "AIR QUALITY", "banner_color": "red", '
+            '"subtitle": "KEEP WINDOWS SHUT", "headline": "AQI 168", '
             '"reason": "why you changed it", '
             '"log": "one line on how things stand, for your future self"}'
         )
@@ -234,8 +235,9 @@ def build_grid_prompt(
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
         'A bare number is ambiguous: 62 what? Set "suffix" on a tile to the '
-        "unit its desc implies — F, %, MPH, KM, MI — so the board shows 62F "
-        "and 7.2MPH. No suffix for unitless values like counts or indexes, "
+        "unit its desc implies — F, %, MPH, KM, MI, MIN — so the board shows 62F "
+        "and 7.2MPH. Time spans especially: a bare 4 could be four minutes or "
+        "four trains, so write 4MIN. No suffix for unitless counts or indexes, "
         "and none for values that already carry their unit.\n\n"
         "Compose the board around ONE coherent theme — the weather story, the "
         "market story, the transit story — chosen for the time of day and "
@@ -252,15 +254,29 @@ def build_grid_prompt(
         "another stat refers to. Put such a value directly beside the stat it "
         "belongs to, or fold it into the title, or leave it out. Never give it "
         "a tile alone. Use common sense about which values those are.\n\n"
-        "A good board has a title, groups related stats together, and leads "
-        "with whatever a person would want to know first. EXAMPLE:\n"
-        "  {red} AIR QUALITY {red}\n"
-        "  AQI    168 PM25    89\n"
+        "Design the board like a made page, not a printout. Pick the pattern "
+        "that fits the moment and fill it completely — on a six-row board use "
+        "all six rows.\n\n"
+        "PATTERN PAGE — the everyday themed board. Title, subtitle for the "
+        "context line, then paired stats:\n"
+        "  {blue}{blue} SAN FRANCISCO {blue}{blue}\n"
+        "  {blue} LIGHT RAIN, 8 AM {blue}\n"
         "  NOW    62F RAIN   87%\n"
-        "  WIND 7.2MPH VIS 6.2MI\n\n"
-        "Note what that example does with the ticker problem: if it showed a "
-        "stock it would title the board GOOG and put the price beneath, rather "
-        "than spending a tile on the word GOOG.\n\n"
+        "  LIKE   61F WIND 7.2MPH\n"
+        "  HIGH   67F UV      0.1\n"
+        "  LOW    59F SET 7:36 PM\n\n"
+        "PATTERN ALERT — when one thing dominates. Title names the problem, "
+        "subtitle says what to do, stats support it:\n"
+        "  {red}{red} AIR QUALITY {red}{red}\n"
+        "  {red} KEEP WINDOWS SHUT {red}\n"
+        "  AQI    168 PM25    89\n"
+        "  NOW    62F WIND 9.6MPH\n\n"
+        'Set "subtitle" for that second header line. Note the ticker rule at '
+        "work: a stock board would be titled GOOG with the price beneath, "
+        "never a tile spending itself on the word GOOG.\n\n"
+        "Numbers in the banner and subtitle obey the tile rule: only digits "
+        "that appear in the stats you were given. Words are yours; numbers "
+        "are not.\n\n"
         'Write one short "log" line describing how things stand — "fog thick '
         'since morning", "AQI climbing all afternoon". You will be shown your '
         "own recent log lines next time, and they are the only memory you have "

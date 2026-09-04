@@ -91,13 +91,15 @@ def _render_tile(tile: Tile, width: int, use_color: bool) -> str:
     return prefix + label + (" " * max(0, gap)) + value
 
 
-def placed_count(tiles: list[Tile], geo: Geometry, banner: str = "") -> int:
+def placed_count(
+    tiles: list[Tile], geo: Geometry, banner: str = "", subtitle: str = ""
+) -> int:
     """How many of *tiles* actually reach the board.
 
     Watching forty variables does not mean forty are shown; the board fits
     what it fits, and the count that matters is the one on screen.
     """
-    rows = geo.rows - (1 if banner else 0)
+    rows = geo.rows - (1 if banner else 0) - (1 if banner and subtitle else 0)
     usable = [
         t for t in tiles
         if sanitize(t.value).strip() and fits_board(t.value, geo)
@@ -113,21 +115,23 @@ def placed_count(tiles: list[Tile], geo: Geometry, banner: str = "") -> int:
     return placed
 
 
-def render_banner(text: str, color: str | None, cols: int) -> str:
+def render_banner(text: str, color: str | None, cols: int, weight: int = 2) -> str:
     """Centre a title, framed by color tiles when there is room for them.
 
-    Color reads best around a title rather than inside it. If framing would
-    cost a word, the words win — decoration is not worth losing meaning.
+    A double frame each side is what the best handmade pages use — it gives
+    the title weight. Falls back to a single frame, then to plain text: if
+    framing would cost a word, the words win.
     """
     body = truncate(sanitize(text), cols)
     if not body:
         return ""
     if color:
         marker = "{" + color.lower() + "}"
-        framed = f"{marker} {body} {marker}"
-        if cell_width(framed) <= cols:
-            pad = (cols - cell_width(framed)) // 2
-            return (" " * pad) + framed
+        for n in range(max(1, weight), 0, -1):
+            framed = f"{marker * n} {body} {marker * n}"
+            if cell_width(framed) <= cols:
+                pad = (cols - cell_width(framed)) // 2
+                return (" " * pad) + framed
     return body.center(cols).rstrip()
 
 
@@ -137,12 +141,19 @@ def render_grid(
     banner: str = "",
     use_color: bool = True,
     banner_color: str | None = None,
+    subtitle: str = "",
 ) -> list[str]:
     """Place *tiles* into the board grid, returning exactly ``geo.rows`` lines."""
     lines: list[str] = []
-    banner_text = render_banner(banner, banner_color if use_color else None, geo.cols)
+    hue = banner_color if use_color else None
+    banner_text = render_banner(banner, hue, geo.cols, weight=2)
     if banner_text:
         lines.append(banner_text)
+        # A subtitle only makes sense beneath a title; framed lighter, the way
+        # the reference page frames its date line under the city name.
+        subtitle_text = render_banner(subtitle, hue, geo.cols, weight=1)
+        if subtitle_text:
+            lines.append(subtitle_text)
 
     grid_rows = geo.rows - len(lines)
     placed = list(tiles[: geo.tile_columns * grid_rows])
