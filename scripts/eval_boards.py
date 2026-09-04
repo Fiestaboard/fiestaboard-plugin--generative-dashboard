@@ -139,6 +139,13 @@ def judge_grid(result, lines, scenario, geo):
     # The bar is "nobody guesses it is generated": a designed page uses the
     # whole board, and no tile echoes its own value.
     checks["full_board"] = len(content) >= geo.rows - 1
+    # Row rhythm: once the board leaves a shape it never returns to it.
+    def _shape(line):
+        stripped = _plain(line)
+        return "full" if len(stripped) >= geo.cols - 1 and not stripped[geo.tile_width - 1 : geo.tile_width + 1].strip() else "pair"
+    stat_lines = [l for l in lines if l.strip() and "{" not in l[:2] and not l.startswith(" ")]
+    shapes = [_shape(l) for l in stat_lines]
+    checks["rhythm"] = sum(1 for a, b in zip(shapes, shapes[1:]) if a != b) <= 1
     checks["no_echo_label"] = not any(
         t.label.strip() and t.label.strip().upper() == t.value.strip().upper()
         for t in result.tiles

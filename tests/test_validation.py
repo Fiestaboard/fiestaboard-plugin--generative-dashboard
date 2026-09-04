@@ -421,3 +421,12 @@ def test_at_most_three_tiles_keep_their_color():
     result = _validate(payload, watchlist=list(values), values=values)
     assert sum(1 for t in result.tiles if t.color) == 3
     assert [t.color for t in result.tiles[:3]] == ["red", "red", "red"]
+
+
+def test_the_model_may_choose_the_list_layout():
+    result = _validate(_grid(layout="list"))
+    assert result.layout == "list"
+
+
+def test_an_unknown_layout_falls_back_to_auto():
+    assert _validate(_grid(layout="mosaic")).layout == "auto"

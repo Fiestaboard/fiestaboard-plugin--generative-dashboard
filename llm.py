@@ -91,8 +91,14 @@ class DashboardLLM:
         cleaned = _FENCE_RE.sub("", content).strip()
         try:
             parsed = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
+        except json.JSONDecodeError:
+            # Trailing commas are the local models' favourite slip. A repair
+            # costs nothing; a retry costs a whole model call.
+            repaired = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            try:
+                parsed = json.loads(repaired)
+            except json.JSONDecodeError as exc:
+                raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
         if not isinstance(parsed, dict):
             raise LLMError("Response JSON was not an object", retryable=True)
         return parsed
@@ -263,6 +269,12 @@ def build_grid_prompt(
         "Design the board like a made page, not a printout. Pick the pattern "
         "that fits the moment and fill it completely — on a six-row board use "
         "all six rows.\n\n"
+        "Rows are grouped by shape for you: short stats pair up two to a row, "
+        "long values each take a full ledger row, and the two kinds never "
+        'interleave. Set "layout": "list" to force every stat onto its own '
+        "ledger row — the right shape for a prices board.\n\n"
+        "The header already places the board in time, so a date or clock "
+        "tile is filler unless time itself is the story.\n\n"
         "PATTERN PAGE — the everyday themed board. Title, subtitle for the "
         "context line, then paired stats:\n"
         "  {blue}{blue} SAN FRANCISCO {blue}{blue}\n"

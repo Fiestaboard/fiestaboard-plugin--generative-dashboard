@@ -72,6 +72,7 @@ class Composition:
     banner: str
     banner_color: str | None
     subtitle: str
+    layout: str
     prose: str
     headline: str
     reason: str
@@ -86,6 +87,7 @@ class BoardState:
     banner: str = ""
     banner_color: str | None = None
     subtitle: str = ""
+    layout: str = "auto"
     prose: str = ""
     values: dict[str, str] = field(default_factory=dict)
     previous: dict[str, str] = field(default_factory=dict)
@@ -336,6 +338,7 @@ class GenerativeDashboardPlugin(PluginBase):
             banner, prose = state.banner, state.prose
             banner_hue = state.banner_color
             subtitle = state.subtitle
+            layout = state.layout
             stale, degraded = state.stale, state.degraded
 
         if config.get("output_mode", "grid") == "prose" and prose and not stale:
@@ -356,9 +359,9 @@ class GenerativeDashboardPlugin(PluginBase):
             if tiles:
                 lines = render_grid(
                     tiles, geo, banner=banner, use_color=use_color,
-                    banner_color=banner_hue, subtitle=subtitle,
+                    banner_color=banner_hue, subtitle=subtitle, layout=layout,
                 )
-                return lines, degraded, placed_count(tiles, geo, banner, subtitle)
+                return lines, degraded, placed_count(tiles, geo, banner, subtitle, layout)
 
         tiles = fallback.deterministic_tiles(
             watchlist, self._labels(config), values, self._pinned(config)
@@ -442,6 +445,7 @@ class GenerativeDashboardPlugin(PluginBase):
             state.banner = outcome.banner
             state.banner_color = outcome.banner_color
             state.subtitle = outcome.subtitle
+            state.layout = outcome.layout
             state.prose = outcome.prose
             state.headline = outcome.headline
             state.reason = outcome.reason
@@ -502,7 +506,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     )
                     return Composition(
                         tiles=[], banner="", banner_color=None, subtitle="",
-                        prose=result.text,
+                        layout="auto", prose=result.text,
                         headline=result.headline, reason=result.reason, log=result.log,
                     )
                 grid = validate_grid(
@@ -520,7 +524,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 ]
                 return Composition(
                     tiles=specs, banner=grid.banner, banner_color=grid.banner_color,
-                    subtitle=grid.subtitle, prose="", headline=grid.headline,
+                    subtitle=grid.subtitle, layout=grid.layout, prose="",
+                    headline=grid.headline,
                     reason=grid.reason, log=grid.log,
                 )
             except ValidationError as exc:

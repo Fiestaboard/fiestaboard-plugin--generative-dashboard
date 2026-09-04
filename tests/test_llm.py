@@ -353,3 +353,24 @@ def test_label_budget_accounts_for_the_status_dot_column():
 def test_the_prompt_says_an_identifier_becomes_a_label():
     system, _ = _prompt(build_grid_prompt)
     assert 'label "GOOG"' in system or "as the label" in system.lower()
+
+
+def test_the_prompt_explains_the_layout_control():
+    system, _ = _prompt(build_grid_prompt)
+    assert '"layout"' in system and "list" in system
+
+
+def test_the_prompt_calls_a_date_tile_filler():
+    # The header places the board in time; DATE 09/03/26 as a stat row is
+    # dead weight unless time is the story.
+    system, _ = _prompt(build_grid_prompt)
+    assert "filler" in system.lower()
+
+
+def test_a_trailing_comma_is_repaired_rather_than_rejected():
+    # Gemma's most common JSON slip; a retry costs 3s, a regex costs nothing.
+    fenced = '{"tiles": [{"label": "A", "variable": "a.b"},], "banner": "X",}'
+    with patch("requests.post", return_value=_response(fenced)):
+        result = _client().complete("sys", "user")
+    assert result["banner"] == "X"
+    assert len(result["tiles"]) == 1

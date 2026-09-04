@@ -67,6 +67,7 @@ class GridResult:
     banner: str
     banner_color: str | None
     subtitle: str
+    layout: str  # "auto" | "list"
     suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
     prefixes: dict[str, str]  # currency-style prefix per ref, e.g. {"st.p": "$"}
     headline: str
@@ -172,6 +173,9 @@ def validate_grid(
         raise ValidationError("Response had no 'tiles' list")
 
     watched = set(watchlist)
+    layout = str(data.get("layout") or "auto").lower()
+    if layout not in ("auto", "list"):
+        layout = "auto"
     banner = trim_to_words(sanitize(str(data.get("banner") or "")), geo.cols)
     subtitle = trim_to_words(sanitize(str(data.get("subtitle") or "")), geo.cols)
     banner_hue = str(data.get("banner_color") or "").lower()
@@ -303,6 +307,7 @@ def validate_grid(
         banner=banner,
         banner_color=banner_color,
         subtitle=subtitle,
+        layout=layout,
         suffixes=suffixes,
         prefixes=prefixes,
         headline=sanitize(str(data.get("headline") or "")),

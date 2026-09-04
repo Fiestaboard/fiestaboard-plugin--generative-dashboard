@@ -197,12 +197,15 @@ def test_short_values_still_share_a_row():
     assert len(lines) == 1
 
 
-def test_a_wide_tile_does_not_swallow_its_neighbours():
+def test_a_wide_tile_moves_to_its_section_instead_of_splitting_a_pair():
+    # Sections beat strict ordering: the two short stats share a row and the
+    # wide one takes a ledger row, instead of three ragged lines.
     geo = geometry(6, 22)
     tiles = [Tile("CPU", "42%"), Tile("DATE", "09/03/26"), Tile("AQI", "168")]
     lines = _content(render_grid(tiles, geo))
-    assert len(lines) == 3
-    assert "CPU" in lines[0] and "DATE" in lines[1] and "AQI" in lines[2]
+    assert len(lines) == 2
+    assert "CPU" in lines[0] and "AQI" in lines[0]
+    assert "DATE" in lines[1] and len(lines[1]) == 22
 
 
 def test_a_single_column_board_never_needs_widening():
@@ -349,3 +352,46 @@ def test_single_column_boards_keep_their_normal_row_shape():
     geo = geometry(3, 15)
     lines = _content(render_grid([Tile("CPU", "42%")], geo))
     assert lines[0] == "CPU" + " " * 9 + "42%"
+
+
+def test_row_shapes_never_interleave():
+    # A human never alternates pair rows and ledger rows; shape is grouped
+    # into sections. Wide values gather in one block, pairs in another.
+    geo = geometry(6, 22)
+    tiles = [
+        Tile("GOOG", "$339.08"),   # wide
+        Tile("VIS", "6.2MI"),      # narrow
+        Tile("CHANGE", "1.59%"),   # wide (needs full row? 6ch value fits pair)
+        Tile("TEMP", "60F"),       # narrow
+    ]
+    lines = _content(render_grid(tiles, geo))
+    shapes = ["pair" if len(l.split()) >= 4 or ("  " in l.strip() and len(l) <= 22 and l.count(" ") < 8) else "full" for l in lines]
+    # classify by structure instead: a full row spans 22 with one label+value
+    def shape(line):
+        return "full" if len(line) == 22 and line[:11].strip() and not line[10:12].strip() else "pair"
+    shapes = [shape(l) for l in lines]
+    # once we leave a shape we never return to it
+    transitions = sum(1 for a, b in zip(shapes, shapes[1:]) if a != b)
+    assert transitions <= 1, (shapes, lines)
+
+
+def test_the_lead_story_decides_which_section_comes_first():
+    geo = geometry(6, 22)
+    wide_first = _content(render_grid(
+        [Tile("GOOG", "$339.08"), Tile("VIS", "6.2MI"), Tile("TEMP", "60F")], geo))
+    assert "GOOG" in wide_first[0]
+    narrow_first = _content(render_grid(
+        [Tile("VIS", "6.2MI"), Tile("TEMP", "60F"), Tile("GOOG", "$339.08")], geo))
+    assert "VIS" in narrow_first[0] and "GOOG" in narrow_first[-1]
+
+
+def test_list_layout_makes_every_row_a_ledger_row():
+    # The handmade stocks page is all full-width rows; the model can ask for
+    # that shape outright instead of hoping values force it.
+    geo = geometry(6, 22)
+    lines = _content(render_grid(
+        [Tile("GOOG", "$339.08"), Tile("VIS", "6.2MI"), Tile("TEMP", "60F")],
+        geo, layout="list"))
+    assert len(lines) == 3
+    assert all(len(l) == 22 for l in lines)
+    assert lines[1] == "VIS" + " " * 14 + "6.2MI"

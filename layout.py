@@ -97,30 +97,6 @@ def _render_tile(tile: Tile, width: int, use_color: bool, reserve_dot: bool = Fa
     return label + (" " * max(0, gap)) + value + (dot or (" " if reserve_dot else ""))
 
 
-def placed_count(
-    tiles: list[Tile], geo: Geometry, banner: str = "", subtitle: str = ""
-) -> int:
-    """How many of *tiles* actually reach the board.
-
-    Watching forty variables does not mean forty are shown; the board fits
-    what it fits, and the count that matters is the one on screen.
-    """
-    rows = geo.rows - (1 if banner else 0) - (1 if banner and subtitle else 0)
-    usable = [
-        t for t in tiles
-        if sanitize(t.value).strip() and fits_board(t.value, geo)
-    ][: geo.tile_columns * rows]
-    used = 0
-    placed = 0
-    for tile in usable:
-        cost = geo.tile_columns if needs_full_row(tile.value, geo) else 1
-        if used + cost > geo.tile_columns * rows:
-            break
-        used += cost
-        placed += 1
-    return placed
-
-
 def render_banner(text: str, color: str | None, cols: int, weight: int = 2) -> str:
     """Centre a title, framed by color tiles when there is room for them.
 
@@ -141,6 +117,49 @@ def render_banner(text: str, color: str | None, cols: int, weight: int = 2) -> s
     return body.center(cols).rstrip()
 
 
+def _pack(tiles: list[Tile], geo: Geometry, layout: str = "auto") -> list[list[Tile]]:
+    """Group tiles into rows with a single rhythm.
+
+    A human never alternates row shapes mid-board: the handmade weather page
+    is all pairs, the handmade stocks page is all ledger rows. So rows of the
+    same shape are gathered into sections — the model's first tile decides
+    which section leads — and ``layout="list"`` forces the all-ledger shape
+    outright. An odd narrow tile joins the ledger section rather than leaving
+    a half-empty row anywhere.
+    """
+    usable = [
+        t for t in tiles
+        if sanitize(t.value).strip() and fits_board(t.value, geo)
+    ]
+    if not usable:
+        return []
+    if geo.tile_columns == 1 or layout == "list":
+        return [[t] for t in usable]
+
+    wide = [t for t in usable if needs_full_row(t.value, geo)]
+    narrow = [t for t in usable if not needs_full_row(t.value, geo)]
+
+    pairs = [
+        narrow[i : i + geo.tile_columns]
+        for i in range(0, len(narrow) - len(narrow) % geo.tile_columns, geo.tile_columns)
+    ]
+    leftover = narrow[len(narrow) - len(narrow) % geo.tile_columns :]
+    ledger = [[t] for t in wide] + [[t] for t in leftover]
+
+    if wide and needs_full_row(usable[0].value, geo):
+        return ledger + pairs
+    return pairs + ledger
+
+
+def placed_count(
+    tiles: list[Tile], geo: Geometry, banner: str = "", subtitle: str = "",
+    layout: str = "auto",
+) -> int:
+    """How many of *tiles* actually reach the board."""
+    rows = geo.rows - (1 if banner else 0) - (1 if banner and subtitle else 0)
+    return sum(len(row) for row in _pack(tiles, geo, layout)[: max(0, rows)])
+
+
 def render_grid(
     tiles: list[Tile],
     geo: Geometry,
@@ -148,6 +167,7 @@ def render_grid(
     use_color: bool = True,
     banner_color: str | None = None,
     subtitle: str = "",
+    layout: str = "auto",
 ) -> list[str]:
     """Place *tiles* into the board grid, returning exactly ``geo.rows`` lines."""
     lines: list[str] = []
@@ -162,19 +182,14 @@ def render_grid(
             lines.append(subtitle_text)
 
     grid_rows = geo.rows - len(lines)
-    placed = list(tiles[: geo.tile_columns * grid_rows])
+    packed = _pack(tiles, geo, layout)[: max(0, grid_rows)]
+    reserve_dot = use_color and any(t.color for row in packed for t in row)
 
-    # One rule for the whole board: a dot column exists for everyone or for
-    # no one, so colored and plain rows keep their values aligned.
-    reserve_dot = use_color and any(t.color for t in tiles)
-
-    def flush(buffer: list[Tile]) -> None:
-        # A row with one tile on a multi-column board spans the full width —
-        # label left, value right — because a half-empty row in mid-board is
-        # the single loudest tell that a layout was generated.
-        if len(buffer) == 1 and geo.tile_columns > 1:
-            lines.append(_render_tile(buffer[0], geo.cols, use_color, reserve_dot).rstrip())
-            return
+    for row in packed:
+        if len(row) == 1 and geo.tile_columns > 1:
+            # Ledger row: label left, value right, spanning the board.
+            lines.append(_render_tile(row[0], geo.cols, use_color, reserve_dot).rstrip())
+            continue
         cells = [
             # Every column but the last gives up one cell as a gutter.
             _render_tile(
@@ -183,34 +198,9 @@ def render_grid(
                 use_color,
                 reserve_dot,
             )
-            for column, tile in enumerate(buffer)
+            for column, tile in enumerate(row)
         ]
         lines.append(" ".join(cells).rstrip())
-
-    buffer: list[Tile] = []
-    for tile in placed:
-        if len(lines) >= geo.rows:
-            break
-        if not sanitize(tile.value).strip():
-            # A label with nothing beside it is noise, not a stat.
-            continue
-        if not fits_board(tile.value, geo):
-            continue
-        # A value too long to leave room for a label gets the whole row, rather
-        # than being labelled "D" and leaving the reader to guess.
-        if needs_full_row(tile.value, geo):
-            if buffer:
-                flush(buffer)
-                buffer = []
-            if len(lines) < geo.rows:
-                lines.append(_render_tile(tile, geo.cols, use_color, reserve_dot).rstrip())
-            continue
-        buffer.append(tile)
-        if len(buffer) == geo.tile_columns:
-            flush(buffer)
-            buffer = []
-    if buffer and len(lines) < geo.rows:
-        flush(buffer)
 
     # Centre the block, banner included, rather than letting it cling to the
     # top with dead rows beneath it — that reads as a bug rather than a layout.
