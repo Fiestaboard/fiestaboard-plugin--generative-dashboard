@@ -141,6 +141,7 @@ def _context_block(
     previous: dict[str, str],
     previous_board: list[str],
     now: "datetime | None" = None,
+    journal: str = "",
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
     when = describe_now(now) if now is not None else ""
@@ -152,6 +153,7 @@ def _context_block(
     )
     return (
         (f"RIGHT NOW: {when}.\n\n" if when else "")
+        + (f"EARLIER TODAY:\n{journal}\n\n" if journal else "")
         + f"BOARD: {geo.rows} rows of {geo.cols} columns.\n\n"
         f"AVAILABLE STATS:\n{described}\n\n"
         f"CURRENTLY ON THE BOARD:\n{board}\n"
@@ -174,23 +176,34 @@ def build_grid_prompt(
     use_color: bool,
     extra_instructions: str,
     now: datetime | None = None,
+    journal: str = "",
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
         colour_rule = (
-            'Set "color" on at most one or two tiles, and only when a value has '
-            "moved enough to deserve attention. Valid colors: "
+            'Set "color" on a tile to show the *level* of that stat, not merely '
+            "that it changed: green when a reading is good or low, yellow or "
+            "orange as it climbs, red when it is bad or high, blue for cold. A "
+            "UV index, an air quality number or a pollen count all read this way. "
+            "Leave a stat uncolored when its level means nothing. Two or three "
+            "colored tiles is plenty.\n\n"
+            'Set "banner_color" to color the title itself, which is where color '
+            "reads best of all. Valid colors: "
             f"{', '.join(ACCENT_COLORS)}.\n\n"
         )
         example = (
             '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}], '
-            '"banner": "", "headline": "AQI 168", "reason": "why you changed it"}'
+            '"banner": "AIR QUALITY", "banner_color": "red", "headline": "AQI 168", '
+            '"reason": "why you changed it", '
+            '"log": "one line on how things stand, for your future self"}'
         )
     else:
         colour_rule = ""
         example = (
             '{"tiles": [{"label": "AQI", "variable": "air.aqi"}], '
-            '"banner": "", "headline": "AQI 168", "reason": "why you changed it"}'
+            '"banner": "AIR QUALITY", "headline": "AQI 168", '
+            '"reason": "why you changed it", '
+            '"log": "one line on how things stand, for your future self"}'
         )
 
     system = (
@@ -208,6 +221,16 @@ def build_grid_prompt(
         "is why some label_max values are generous.\n\n"
         "Fill the board. Empty rows look broken, so use the slots you have "
         "unless there is genuinely nothing else worth showing.\n\n"
+        "A good board has a title, groups related stats together, and leads "
+        "with whatever a person would want to know first. EXAMPLE:\n"
+        "  {red} AIR QUALITY {red}\n"
+        "  AQI    168 PM25    89\n"
+        "  TEMP    62 HUMID   98\n"
+        "  WIND  10.7 VISIB 6.2MI\n\n"
+        'Write one short "log" line describing how things stand — "fog thick '
+        'since morning", "AQI climbing all afternoon". You will be shown your '
+        "own recent log lines next time, and they are the only memory you have "
+        "of what came before, so make them worth reading.\n\n"
         "Weight the board for the time and date given above. A weekday "
         "commute hour makes transit and traffic matter; a hot afternoon makes "
         "air quality matter; late at night almost nothing is urgent and "
@@ -225,7 +248,9 @@ def build_grid_prompt(
     )
     return (
         _with_extra(system, extra_instructions),
-        _context_block(geo, refs, labels, notes, current, previous, previous_board, now),
+        _context_block(
+            geo, refs, labels, notes, current, previous, previous_board, now, journal
+        ),
     )
 
 
@@ -240,6 +265,7 @@ def build_prose_prompt(
     previous_board: list[str],
     extra_instructions: str,
     now: datetime | None = None,
+    journal: str = "",
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
@@ -248,6 +274,10 @@ def build_prose_prompt(
         f"{geo.cols} columns across {geo.rows} rows, so be brief.\n\n"
         "Say what changed and why it matters. Lead with the most important "
         "thing. Skip anything that has not moved unless there is room.\n\n"
+        'Write one short "log" line describing how things stand — "fog thick '
+        'since morning", "AQI climbing all afternoon". You will be shown your '
+        "own recent log lines next time, and they are the only memory you have "
+        "of what came before, so make them worth reading.\n\n"
         "Weight the board for the time and date given above. A weekday "
         "commute hour makes transit and traffic matter; a hot afternoon makes "
         "air quality matter; late at night almost nothing is urgent and "
@@ -261,9 +291,12 @@ def build_prose_prompt(
         f"{_CHARSET_RULES}\n\n"
         "Reply with JSON only:\n"
         '{"text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168", '
-        '"reason": "why you changed it"}'
+        '"reason": "why you changed it", '
+        '"log": "one line on how things stand, for your future self"}'
     )
     return (
         _with_extra(system, extra_instructions),
-        _context_block(geo, refs, labels, notes, current, previous, previous_board, now),
+        _context_block(
+            geo, refs, labels, notes, current, previous, previous_board, now, journal
+        ),
     )

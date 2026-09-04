@@ -230,3 +230,31 @@ def test_both_prompts_ask_the_model_to_weight_by_time_of_day():
     for builder in (build_grid_prompt, build_prose_prompt):
         system, _ = _prompt(builder)
         assert "commute" in system.lower()
+
+
+def test_the_prompt_carries_what_has_been_happening():
+    _, user = _prompt(build_grid_prompt, journal="- 09:00 Fog thick\n- 15:00 Cleared")
+    assert "Fog thick" in user and "Cleared" in user
+    assert "EARLIER" in user.upper()
+
+
+def test_the_prompt_omits_the_history_block_when_there_is_none():
+    _, user = _prompt(build_grid_prompt)
+    assert "EARLIER" not in user.upper()
+
+
+def test_the_model_is_asked_to_record_what_it_sees():
+    system, _ = _prompt(build_grid_prompt)
+    assert '"log"' in system
+
+
+def test_the_grid_prompt_shows_an_example_of_a_good_board():
+    system, _ = _prompt(build_grid_prompt)
+    assert "EXAMPLE" in system.upper()
+
+
+def test_the_prompt_explains_color_as_intensity_not_just_change():
+    system, _ = _prompt(build_grid_prompt, use_color=True)
+    lowered = system.lower()
+    assert "green" in lowered and "red" in lowered
+    assert "banner_color" in system

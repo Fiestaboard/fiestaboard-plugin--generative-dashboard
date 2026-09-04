@@ -32,6 +32,7 @@ from src.plugins.base import (
 )
 
 from . import catalog, fallback, gate
+from .journal import Journal
 from .charset import sanitize
 from .layout import Geometry, Tile, geometry, placed_count, render_grid, wrap_center
 from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
@@ -54,12 +55,26 @@ class TileSpec:
     color: str | None
 
 
+@dataclass(frozen=True)
+class Composition:
+    """One finished composition, whichever mode produced it."""
+
+    tiles: list[TileSpec]
+    banner: str
+    banner_color: str | None
+    prose: str
+    headline: str
+    reason: str
+    log: str
+
+
 @dataclass
 class BoardState:
     """Everything the plugin remembers for one board size."""
 
     tiles: list[TileSpec] = field(default_factory=list)
     banner: str = ""
+    banner_color: str | None = None
     prose: str = ""
     values: dict[str, str] = field(default_factory=dict)
     previous: dict[str, str] = field(default_factory=dict)
@@ -69,6 +84,7 @@ class BoardState:
     generated_at: str = ""
     last_good: str = ""
     recent: dict[str, str] = field(default_factory=dict)
+    journal: Journal = field(default_factory=Journal)
     last_generated: float = 0.0
     outage_index: int = -1
     failures: int = 0
@@ -266,7 +282,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 state.last_generated = time.monotonic()
                 self._spawn(
                     key, geo, config, watchlist, dict(values), dict(state.previous),
-                    list(state.lines), self._config_generation,
+                    list(state.lines), self._config_generation, state.journal.render(),
                 )
 
         lines, degraded, stat_count = self._compose(state, geo, config, values, watchlist)
@@ -307,6 +323,7 @@ class GenerativeDashboardPlugin(PluginBase):
         with self._lock:
             specs = list(state.tiles)
             banner, prose = state.banner, state.prose
+            banner_hue = state.banner_color
             stale, degraded = state.stale, state.degraded
 
         if config.get("output_mode", "grid") == "prose" and prose and not stale:
@@ -319,7 +336,10 @@ class GenerativeDashboardPlugin(PluginBase):
                 if spec.ref in values
             ]
             if tiles:
-                lines = render_grid(tiles, geo, banner=banner, use_color=use_color)
+                lines = render_grid(
+                    tiles, geo, banner=banner, use_color=use_color,
+                    banner_color=banner_hue,
+                )
                 return lines, degraded, placed_count(tiles, geo, banner)
 
         tiles = fallback.deterministic_tiles(
@@ -359,21 +379,26 @@ class GenerativeDashboardPlugin(PluginBase):
 
     # -- generation, off the render path ----------------------------------
 
-    def _spawn(self, key, geo, config, watchlist, current, previous, previous_board, generation) -> None:
+    def _spawn(self, key, geo, config, watchlist, current, previous, previous_board,
+               generation, journal="") -> None:
         with self._lock:
             if key in self._inflight:
                 return
             self._inflight.add(key)
         threading.Thread(
             target=self._run,
-            args=(key, geo, config, watchlist, current, previous, previous_board, generation),
+            args=(key, geo, config, watchlist, current, previous, previous_board,
+                  generation, journal),
             name=f"generative-dashboard-{key}",
             daemon=True,
         ).start()
 
-    def _run(self, key, geo, config, watchlist, current, previous, previous_board, generation) -> None:
+    def _run(self, key, geo, config, watchlist, current, previous, previous_board,
+             generation, journal="") -> None:
         try:
-            outcome = self._generate(geo, config, watchlist, current, previous, previous_board)
+            outcome = self._generate(
+                geo, config, watchlist, current, previous, previous_board, journal
+            )
         except Exception:
             logger.exception("Dashboard generation failed")
             outcome = None
@@ -395,18 +420,19 @@ class GenerativeDashboardPlugin(PluginBase):
                 # frozen prose is now describing a board that no longer exists.
                 state.stale = True
                 return
-            tiles, banner, prose, headline, reason = outcome
-            state.tiles = tiles
-            state.banner = banner
-            state.prose = prose
-            state.headline = headline
-            state.reason = reason
+            state.tiles = outcome.tiles
+            state.banner = outcome.banner
+            state.banner_color = outcome.banner_color
+            state.prose = outcome.prose
+            state.headline = outcome.headline
+            state.reason = outcome.reason
+            state.journal.add(datetime.now().strftime("%H:%M"), outcome.log)
             state.failures = 0
             state.stale = False
             state.degraded = ""
             state.generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    def _generate(self, geo, config, watchlist, current, previous, previous_board):
+    def _generate(self, geo, config, watchlist, current, previous, previous_board, journal=""):
         """One generation attempt, with a single stricter retry."""
         client = DashboardLLM(
             base_url=str(config.get("api_base_url", "https://api.openai.com/v1")),
@@ -429,14 +455,14 @@ class GenerativeDashboardPlugin(PluginBase):
                 system, user = build_prose_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
-                    extra_instructions=extra + suffix, now=datetime.now(),
+                    extra_instructions=extra + suffix, now=datetime.now(), journal=journal,
                 )
             else:
                 system, user = build_grid_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
-                    now=datetime.now(),
+                    now=datetime.now(), journal=journal,
                 )
             try:
                 payload = client.complete(system, user)
@@ -453,7 +479,10 @@ class GenerativeDashboardPlugin(PluginBase):
                     result = validate_prose(
                         payload, geo=geo, current=current, previous=previous
                     )
-                    return [], "", result.text, result.headline, result.reason
+                    return Composition(
+                        tiles=[], banner="", banner_color=None, prose=result.text,
+                        headline=result.headline, reason=result.reason, log=result.log,
+                    )
                 grid = validate_grid(
                     payload, watchlist=watchlist, pinned=pinned, values=current,
                     labels=labels, geo=geo, use_color=use_color,
@@ -462,7 +491,10 @@ class GenerativeDashboardPlugin(PluginBase):
                     TileSpec(ref=ref, label=tile.label, color=tile.color)
                     for ref, tile in zip(grid.refs, grid.tiles, strict=True)
                 ]
-                return specs, grid.banner, "", grid.headline, grid.reason
+                return Composition(
+                    tiles=specs, banner=grid.banner, banner_color=grid.banner_color,
+                    prose="", headline=grid.headline, reason=grid.reason, log=grid.log,
+                )
             except ValidationError as exc:
                 logger.warning(
                     "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc

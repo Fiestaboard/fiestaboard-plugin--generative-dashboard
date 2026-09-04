@@ -113,17 +113,36 @@ def placed_count(tiles: list[Tile], geo: Geometry, banner: str = "") -> int:
     return placed
 
 
+def render_banner(text: str, color: str | None, cols: int) -> str:
+    """Centre a title, framed by color tiles when there is room for them.
+
+    Color reads best around a title rather than inside it. If framing would
+    cost a word, the words win — decoration is not worth losing meaning.
+    """
+    body = truncate(sanitize(text), cols)
+    if not body:
+        return ""
+    if color:
+        marker = "{" + color.lower() + "}"
+        framed = f"{marker} {body} {marker}"
+        if cell_width(framed) <= cols:
+            pad = (cols - cell_width(framed)) // 2
+            return (" " * pad) + framed
+    return body.center(cols).rstrip()
+
+
 def render_grid(
     tiles: list[Tile],
     geo: Geometry,
     banner: str = "",
     use_color: bool = True,
+    banner_color: str | None = None,
 ) -> list[str]:
     """Place *tiles* into the board grid, returning exactly ``geo.rows`` lines."""
     lines: list[str] = []
-    banner_text = truncate(sanitize(banner), geo.cols) if banner else ""
+    banner_text = render_banner(banner, banner_color if use_color else None, geo.cols)
     if banner_text:
-        lines.append(banner_text.center(geo.cols).rstrip())
+        lines.append(banner_text)
 
     grid_rows = geo.rows - len(lines)
     placed = list(tiles[: geo.tile_columns * grid_rows])

@@ -65,20 +65,20 @@ GOOD_GRID = {
 
 def test_a_good_grid_response_becomes_tile_specs(plugin):
     with patch("requests.post", return_value=_reply(GOOD_GRID)):
-        specs, banner, prose, headline, reason = _generate(plugin)
-    assert [s.ref for s in specs] == ["air.aqi", "wx.temp"]
-    assert specs[0].color == "red"
-    assert headline == "AQI 168"
-    assert prose == ""
+        out = _generate(plugin)
+    assert [s.ref for s in out.tiles] == ["air.aqi", "wx.temp"]
+    assert out.tiles[0].color == "red"
+    assert out.headline == "AQI 168"
+    assert out.prose == ""
 
 
 def test_a_good_prose_response_becomes_text(plugin):
     config = dict(plugin.config, output_mode="prose")
     payload = {"text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168", "reason": "R"}
     with patch("requests.post", return_value=_reply(payload)):
-        specs, banner, prose, headline, reason = _generate(plugin, config)
-    assert prose == "AQI ROSE FROM 31 TO 168."
-    assert specs == []
+        out = _generate(plugin, config)
+    assert out.prose == "AQI ROSE FROM 31 TO 168."
+    assert out.tiles == []
 
 
 def test_a_rejected_response_is_retried_once(plugin):
@@ -97,8 +97,8 @@ def test_the_retry_prompt_tells_the_model_it_was_rejected(plugin):
 
 def test_a_retry_that_succeeds_is_used(plugin):
     with patch("requests.post", side_effect=[_reply({"tiles": []}), _reply(GOOD_GRID)]):
-        specs, _, _, headline, _ = _generate(plugin)
-    assert headline == "AQI 168"
+        out = _generate(plugin)
+    assert out.headline == "AQI 168"
 
 
 def test_a_network_failure_gives_up_without_retrying(plugin):
@@ -182,11 +182,29 @@ def test_an_unexpected_exception_does_not_wedge_the_plugin(plugin):
 
 def test_malformed_json_is_retried_before_giving_up(plugin):
     with patch("requests.post", side_effect=[_reply_text("nonsense"), _reply(GOOD_GRID)]):
-        _, _, _, headline, _ = _generate(plugin)
-    assert headline == "AQI 168"
+        out = _generate(plugin)
+    assert out.headline == "AQI 168"
 
 
 def test_malformed_json_twice_gives_up(plugin):
     with patch("requests.post", return_value=_reply_text("nonsense")) as post:
         assert _generate(plugin) is None
     assert post.call_count == 2
+
+
+def test_the_models_log_line_is_remembered_for_next_time(plugin):
+    payload = dict(GOOD_GRID, log="Fog thick since morning, AQI climbing")
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with patch("requests.post", return_value=_reply(payload)):
+        plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                    plugin._config_generation)
+    assert "Fog thick since morning" in plugin._states["flagship"].journal.render()
+
+
+def test_the_remembered_history_is_sent_on_the_next_composition(plugin):
+    with patch("requests.post", return_value=_reply(GOOD_GRID)) as post:
+        plugin._generate(GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                         "- 09:00 Fog thick\n- 15:00 Cleared")
+    user = post.call_args.kwargs["json"]["messages"][1]["content"]
+    assert "Fog thick" in user and "Cleared" in user

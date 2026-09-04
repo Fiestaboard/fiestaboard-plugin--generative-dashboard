@@ -27,8 +27,10 @@ class GridResult:
     tiles: list[Tile]
     refs: list[str]  # source ref per tile, parallel to ``tiles``
     banner: str
+    banner_color: str | None
     headline: str
     reason: str
+    log: str
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class ProseResult:
     text: str
     headline: str
     reason: str
+    log: str
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -76,6 +79,8 @@ def validate_grid(
 
     watched = set(watchlist)
     banner = truncate(sanitize(str(data.get("banner") or "")), geo.cols)
+    banner_hue = str(data.get("banner_color") or "").lower()
+    banner_color = banner_hue if (use_color and banner_hue in ACCENT_COLORS) else None
     body_rows = geo.rows - (1 if banner else 0)
     capacity = max(1, geo.tile_columns * body_rows)
 
@@ -129,8 +134,12 @@ def validate_grid(
         tiles=[tile for _, tile in chosen],
         refs=[ref for ref, _ in chosen],
         banner=banner,
+        banner_color=banner_color,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),
+        # The log is prompt context, never board text, so it keeps its case
+        # and punctuation.
+        log=" ".join(str(data.get("log") or "").split()),
     )
 
 
@@ -165,4 +174,5 @@ def validate_prose(
         text=text,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),
+        log=" ".join(str(data.get("log") or "").split()),
     )

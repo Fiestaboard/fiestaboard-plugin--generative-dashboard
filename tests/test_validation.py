@@ -209,3 +209,16 @@ def test_grid_rejects_white_and_black_as_tile_accents():
     for colour in ("white", "black"):
         payload = {"tiles": [{"label": "AQI", "variable": "air.aqi", "color": colour}]}
         assert _validate(payload).tiles[0].color is None
+
+
+def test_grid_accepts_a_banner_color():
+    assert _validate(_grid(banner="AIR QUALITY", banner_color="red")).banner_color == "red"
+
+
+def test_grid_discards_an_invalid_banner_color():
+    assert _validate(_grid(banner="X", banner_color="taupe")).banner_color is None
+
+
+def test_banner_color_is_ignored_when_color_is_disabled():
+    result = _validate(_grid(banner="X", banner_color="red"), use_color=False)
+    assert result.banner_color is None

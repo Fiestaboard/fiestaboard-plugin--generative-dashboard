@@ -222,3 +222,37 @@ def test_a_tile_with_no_value_is_dropped():
 def test_a_whitespace_only_value_is_also_dropped():
     geo = geometry(6, 22)
     assert _content(render_grid([Tile("X", "   ")], geo)) == []
+
+
+def test_a_banner_can_be_flanked_by_color_tiles():
+    # Color reads best around a title, framing it rather than sitting inside it.
+    geo = geometry(6, 22)
+    line = _content(render_grid([Tile("CPU", "42%")], geo, banner="AIR QUALITY",
+                                banner_color="red"))[0]
+    assert line.strip().startswith("{red}")
+    assert line.strip().endswith("{red}")
+    assert "AIR QUALITY" in line
+    assert cell_width(line) <= 22
+
+
+def test_a_banner_without_a_color_is_just_centered():
+    geo = geometry(6, 22)
+    line = _content(render_grid([Tile("CPU", "42%")], geo, banner="AIR QUALITY"))[0]
+    assert "{" not in line
+    assert line.strip() == "AIR QUALITY"
+
+
+def test_banner_color_is_dropped_when_color_is_off():
+    geo = geometry(6, 22)
+    line = _content(render_grid([Tile("CPU", "42%")], geo, banner="AIR QUALITY",
+                                banner_color="red", use_color=False))[0]
+    assert "{red}" not in line
+
+
+def test_a_banner_too_wide_to_frame_keeps_its_text():
+    # Losing a word to make room for decoration would be the wrong trade.
+    geo = geometry(3, 15)
+    line = _content(render_grid([Tile("CPU", "42%")], geo, banner="AIR QUALITY BAD",
+                                banner_color="red"))[0]
+    assert "AIR QUALITY BAD" in line
+    assert cell_width(line) <= 15
