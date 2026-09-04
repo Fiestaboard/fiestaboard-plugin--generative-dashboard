@@ -154,8 +154,9 @@ class GenerativeDashboardPlugin(PluginBase):
         )
         if chosen:
             return chosen
-        width = geometry(DEFAULT_BOARD_ROWS, DEFAULT_BOARD_COLS).tile_width
-        return catalog.eligible_refs(self.plugin_id, width)
+        # Judged against the whole board: a long value gets a full row to
+        # itself, so a single column's width is no longer the limit.
+        return catalog.eligible_refs(self.plugin_id, DEFAULT_BOARD_COLS)
 
     def _labels(self, config: dict[str, Any]) -> dict[str, str]:
         raw = config.get("labels") or {}
@@ -449,8 +450,8 @@ class GenerativeDashboardPlugin(PluginBase):
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
     def _variable_options(self, request: OptionsRequest) -> OptionsResult:
-        # The settings dialog has no board, so judge tile width by a Flagship.
-        width = geometry(DEFAULT_BOARD_ROWS, DEFAULT_BOARD_COLS).tile_width
+        # The settings dialog has no board, so judge by a Flagship's width.
+        width = DEFAULT_BOARD_COLS
         choices = catalog.variable_catalog(self.plugin_id, width, request.query)
         shown = choices[: request.limit]
         return OptionsResult(

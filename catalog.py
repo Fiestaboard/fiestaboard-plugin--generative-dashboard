@@ -116,7 +116,7 @@ def _unusable_reason(plugin_id: str, exclude_plugin_id: str, max_length: object,
     if plugin_id == exclude_plugin_id:
         return "A dashboard cannot watch itself."
     if isinstance(max_length, int) and max_length > width:
-        return f"Up to {max_length} characters — too wide for a {width}-cell tile."
+        return f"Up to {max_length} characters — wider than the {width}-cell board."
     return ""
 
 

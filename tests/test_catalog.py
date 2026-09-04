@@ -361,7 +361,7 @@ def test_eligible_refs_returns_everything_watchable(fake):
     ))
     from plugins.generative_dashboard.catalog import eligible_refs
 
-    # The 200-char forecast cannot go in an 11-cell tile.
+    # The 200-char forecast is wider than the board.
     assert eligible_refs("generative_dashboard", 11) == ["weather.temp"]
 
 
@@ -385,4 +385,18 @@ def test_eligible_refs_ignores_disabled_plugins(fake):
     from plugins.generative_dashboard.catalog import eligible_refs
 
     # A disabled plugin publishes no values, so there is nothing to watch.
+    assert eligible_refs("generative_dashboard", 11) == []
+
+
+def test_eligibility_is_judged_against_the_board_not_one_column(fake):
+    # A long value gets a full row to itself, so a single column's width is
+    # no longer the limit on what can be watched.
+    fake(FakeRegistry(
+        metadata={"stocks": {
+            "price": {"description": "", "max_length": 16, "group": "", "preview": ""}}},
+        names={"stocks": "Stocks"},
+    ))
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    assert eligible_refs("generative_dashboard", 22) == ["stocks.price"]
     assert eligible_refs("generative_dashboard", 11) == []

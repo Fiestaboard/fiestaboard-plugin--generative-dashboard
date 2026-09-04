@@ -36,6 +36,18 @@ being labelled `D`.
 Same watchlist, same gating, same failure handling. Only the final composition
 step differs.
 
+## Controlling how often it fires
+
+Two settings decide how busy the board is, and neither is a polling interval —
+nothing happens at all unless a value moved.
+
+- **How Much a Number Must Move (%)** — the size of change worth redrawing for.
+  Higher is stiller.
+- **Minimum Time Between AI Updates** — the ceiling on how often a redraw can
+  happen. 300 is five minutes; 1800 gives a calm, cheap board.
+
+A quiet day costs nothing either way: no change, no call.
+
 ## The board stays still
 
 Every cycle the plugin reads the watched values and compares them with the
@@ -56,10 +68,11 @@ Out of the box it watches **every variable your enabled plugins expose**. No
 picking, no list to curate. Choosing what matters is the model's entire job;
 making you pre-choose would just be doing that job twice, worse.
 
-On a board with fourteen plugins enabled that is around 110 variables, roughly
-4-5k tokens per generation. Reading them costs about 4ms in steady state,
-because core already caches every plugin's data — only the first render after a
-restart pays to fill that cache.
+On a board with fourteen plugins enabled that is 139 of 144 variables, roughly
+5k tokens per generation. The only ones left out are values wider than the
+board itself, which could not be shown whatever the model decided. Reading them
+costs about 4ms in steady state, because core already caches every plugin's
+data — only the first render after a restart pays to fill that cache.
 
 Set a watchlist only if you want to **narrow** it: mute a noisy variable, or
 keep the board to one subject. The picker is searchable, names the owning
@@ -90,7 +103,7 @@ outage is never mistaken for a two-minute one.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `watchlist` | `[]` | Empty watches everything. Set it only to narrow |
+| `watchlist` | `[]` | Empty sends everything. Set it only to restrict |
 | `labels` | `{}` | Short board label per variable |
 | `pinned` | `[]` | Variables that must always appear |
 | `notes` | `{}` | What a variable means, per variable |
@@ -100,8 +113,8 @@ outage is never mistaken for a two-minute one.
 | `api_key` | — | Required |
 | `model` | `gpt-4o-mini` | Any model the endpoint serves |
 | `temperature` | `0.3` | Low on purpose. This is layout, not art |
-| `refresh_seconds` | `300` | Floor between generations, not a schedule |
-| `default_threshold_pct` | `5` | How far a number must move to count |
+| `refresh_seconds` | `300` | Ceiling on how often the AI may redraw |
+| `default_threshold_pct` | `5` | How far a number must move to be worth a redraw |
 | `use_color` | `true` | Let the model flag an outlier with a colour tile |
 | `extra_instructions` | `""` | Appended to the system prompt |
 

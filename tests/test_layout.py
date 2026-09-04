@@ -187,3 +187,25 @@ def test_a_single_column_board_never_needs_widening():
     geo = geometry(3, 15)
     lines = _content(render_grid([Tile("DATE", "09/03/26")], geo))
     assert lines[0] == "DATE" + " " * 3 + "09/03/26"
+
+
+def test_a_value_too_long_for_the_board_is_dropped_never_truncated():
+    # Truncating "123,456,789.0123" to "123,456,789.012" puts a number on the
+    # board that is not the real number. Showing nothing is the safe failure.
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("X", "123,456,789.0123")], geo))
+    assert lines == []
+
+
+def test_a_value_that_exactly_fills_the_row_is_kept():
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("X", "12,345,678.9012")], geo))
+    assert lines[0] == "12,345,678.9012"
+
+
+def test_an_over_long_value_does_not_take_its_neighbours_down():
+    geo = geometry(3, 15)
+    tiles = [Tile("X", "123,456,789.0123"), Tile("CPU", "42%")]
+    lines = _content(render_grid(tiles, geo))
+    assert len(lines) == 1
+    assert "42%" in lines[0]

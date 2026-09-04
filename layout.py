@@ -48,6 +48,16 @@ def column_inner(geo: "Geometry") -> int:
     return geo.tile_width - 1 if geo.tile_columns > 1 else geo.tile_width
 
 
+def fits_board(value: str, geo: "Geometry") -> bool:
+    """Whether *value* can be shown at all without being cut.
+
+    A truncated value is a wrong value — "123,456,789.0123" becoming
+    "123,456,789.012" puts a number on the board that was never true. The tile
+    is dropped instead.
+    """
+    return cell_width(sanitize(value)) <= geo.cols
+
+
 def needs_full_row(value: str, geo: "Geometry") -> bool:
     """Whether *value* leaves too little room for a real label in one column."""
     if geo.tile_columns == 1:
@@ -112,6 +122,8 @@ def render_grid(
     for tile in placed:
         if len(lines) >= geo.rows:
             break
+        if not fits_board(tile.value, geo):
+            continue
         # A value too long to leave room for a label gets the whole row, rather
         # than being labelled "D" and leaving the reader to guess.
         if needs_full_row(tile.value, geo):
