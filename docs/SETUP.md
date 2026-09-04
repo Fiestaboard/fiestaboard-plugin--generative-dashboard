@@ -36,6 +36,13 @@ Good starting points, if you have the plugins enabled:
 Watch more than fits. Twenty to forty variables gives the model something to
 actually choose between; that choosing is the point of the plugin.
 
+**Plugins you have not enabled still appear**, greyed out and labelled *"Enable
+Dad Jokes to watch its variables."* FiestaBoard only publishes variables for
+enabled plugins, so those cannot be selected until you switch the plugin on —
+but you can at least see what is on offer before deciding. Usable variables are
+always listed first, so the ones you can pick right now are never buried behind
+a plugin you have turned off.
+
 ## 3. Write notes for the ones that matter
 
 This is the step people skip and then wonder why the ranking feels arbitrary.

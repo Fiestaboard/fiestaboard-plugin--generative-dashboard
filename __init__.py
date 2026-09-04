@@ -427,30 +427,39 @@ class GenerativeDashboardPlugin(PluginBase):
         never need an API key and never call the LLM.
         """
         if request.options_id == "variables":
-            return OptionsResult(options=self._variable_options(request))
+            return self._variable_options(request)
         if request.options_id == "watched":
             return OptionsResult(options=self._watched_options(request))
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
-    def _variable_options(self, request: OptionsRequest) -> list[Option]:
+    def _variable_options(self, request: OptionsRequest) -> OptionsResult:
         # The settings dialog has no board, so judge tile width by a Flagship.
         width = geometry(DEFAULT_BOARD_ROWS, DEFAULT_BOARD_COLS).tile_width
         choices = catalog.variable_catalog(self.plugin_id, width, request.query)
-        return [
-            Option(
-                value=choice.ref,
-                label=choice.label,
-                # Keep the ref in the description even when disabled: the
-                # search box filters on label + description only.
-                description=" · ".join(
-                    part for part in (choice.disabled_reason, choice.description) if part
-                ),
-                group=choice.group,
-                preview=choice.preview or None,
-                disabled=choice.disabled,
-            )
-            for choice in choices[: request.limit]
-        ]
+        shown = choices[: request.limit]
+        return OptionsResult(
+            options=[
+                Option(
+                    value=choice.ref,
+                    label=choice.label,
+                    # Keep the ref in the description even when disabled: the
+                    # search box filters on label + description only.
+                    description=" · ".join(
+                        part
+                        for part in (choice.disabled_reason, choice.description)
+                        if part
+                    ),
+                    group=choice.group,
+                    preview=choice.preview or None,
+                    disabled=choice.disabled,
+                )
+                for choice in shown
+            ],
+            # Silent truncation reads as "that is everything", which is exactly
+            # how a whole plugin's variables appear to go missing.
+            has_more=len(choices) > len(shown),
+            total=len(choices),
+        )
 
     def _watched_options(self, request: OptionsRequest) -> list[Option]:
         """Only variables already on the watchlist can be pinned."""

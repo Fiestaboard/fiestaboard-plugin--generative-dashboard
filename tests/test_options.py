@@ -110,3 +110,24 @@ def test_a_disabled_option_keeps_its_ref_searchable(plugin):
     option = _options(plugin, "variables").options[1]
     assert "itself" in option.description.lower()
     assert "gd.headline" in option.description
+
+
+def test_a_truncated_catalog_tells_the_ui_there_is_more(plugin, monkeypatch):
+    # Silent truncation reads as "that's everything", which is how a whole
+    # plugin's variables can appear to be missing.
+    monkeypatch.setattr(
+        catalog, "variable_catalog",
+        lambda exclude, width, query="": [
+            VariableChoice(f"p.v{i}", f"V{i} (P)", f"p.v{i}", "P", "") for i in range(50)
+        ],
+    )
+    result = _options(plugin, "variables", limit=10)
+    assert len(result.options) == 10
+    assert result.has_more
+    assert result.total == 50
+
+
+def test_a_complete_catalog_does_not_claim_there_is_more(plugin):
+    result = _options(plugin, "variables", limit=100)
+    assert not result.has_more
+    assert result.total == 2

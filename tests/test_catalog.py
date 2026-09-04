@@ -19,12 +19,28 @@ class FakeResult:
         self.error = None
 
 
+class FakeVariables:
+    def __init__(self, simple):
+        self.simple = simple
+
+    def get_variable_metadata(self, name):
+        return SimpleNamespace(description="", type="string", max_length=6,
+                               group="", example="")
+
+
 class FakeRegistry:
-    def __init__(self, metadata=None, data=None, names=None):
+    def __init__(self, metadata=None, data=None, names=None, installed=None):
         self._metadata = metadata or {}
         self._data = data or {}
         self._names = names or {}
+        # {plugin_id: [declared variable names]} for plugins that are installed
+        # but not enabled, which expose nothing through the metadata call.
+        self._installed = installed or {}
         self.fetched = []
+
+    @property
+    def plugins(self):
+        return {**{p: object() for p in self._metadata}, **{p: object() for p in self._installed}}
 
     def get_all_variables_with_metadata(self):
         return self._metadata
@@ -32,7 +48,10 @@ class FakeRegistry:
     def get_manifest(self, plugin_id):
         if plugin_id not in self._names:
             return None
-        return SimpleNamespace(name=self._names[plugin_id])
+        return SimpleNamespace(
+            name=self._names[plugin_id],
+            variables=FakeVariables(self._installed.get(plugin_id, {})),
+        )
 
     def fetch_plugin_data(self, plugin_id, board=None):
         self.fetched.append(plugin_id)
@@ -265,3 +284,68 @@ def test_searching_by_the_plugins_display_name_finds_its_variables(fake):
     ))
     hits = variable_catalog("generative_dashboard", 15, query="star trek")
     assert len(hits) == 2
+
+
+def test_an_installed_but_disabled_plugin_still_shows_its_variables(fake):
+    # You cannot decide whether to enable Dad Jokes if you cannot see what it
+    # offers. Core's variable catalog covers enabled plugins only.
+    fake(FakeRegistry(
+        metadata={},
+        installed={"dad_jokes": {"joke": {}, "punchline": {}}},
+        names={"dad_jokes": "Dad Jokes"},
+    ))
+    choices = variable_catalog("generative_dashboard", 15)
+    assert [c.ref for c in choices] == ["dad_jokes.joke", "dad_jokes.punchline"]
+
+
+def test_a_disabled_plugins_variables_say_to_enable_it(fake):
+    fake(FakeRegistry(
+        metadata={},
+        installed={"dad_jokes": {"joke": {}}},
+        names={"dad_jokes": "Dad Jokes"},
+    ))
+    choice = variable_catalog("generative_dashboard", 15)[0]
+    assert choice.disabled
+    assert "enable" in choice.disabled_reason.lower()
+    assert "Dad Jokes" in choice.disabled_reason
+
+
+def test_enabled_variables_are_listed_before_disabled_ones(fake):
+    fake(FakeRegistry(
+        metadata={"weather": {"temp": {"description": "", "max_length": 6,
+                                       "group": "", "preview": "61F"}}},
+        installed={"aardvark_facts": {"fact": {}}},
+        names={"weather": "Weather", "aardvark_facts": "Aardvark Facts"},
+    ))
+    choices = variable_catalog("generative_dashboard", 15)
+    # Alphabetically 'aardvark' sorts first, but usable options come first.
+    assert [c.ref for c in choices] == ["weather.temp", "aardvark_facts.fact"]
+
+
+def test_a_plugin_is_not_listed_twice_when_enabled(fake):
+    fake(FakeRegistry(
+        metadata={"weather": {"temp": {"description": "", "max_length": 6,
+                                       "group": "", "preview": ""}}},
+        installed={"weather": {"temp": {}}},
+        names={"weather": "Weather"},
+    ))
+    assert len(variable_catalog("generative_dashboard", 15)) == 1
+
+
+def test_our_own_plugin_says_it_cannot_watch_itself_even_when_disabled(fake):
+    fake(FakeRegistry(
+        metadata={},
+        installed={"generative_dashboard": {"headline": {}}},
+        names={"generative_dashboard": "Generative Dashboard"},
+    ))
+    choice = variable_catalog("generative_dashboard", 15)[0]
+    assert "itself" in choice.disabled_reason.lower()
+
+
+def test_a_disabled_plugin_is_searchable_by_name(fake):
+    fake(FakeRegistry(
+        metadata={},
+        installed={"dad_jokes": {"joke": {}}},
+        names={"dad_jokes": "Dad Jokes"},
+    ))
+    assert len(variable_catalog("generative_dashboard", 15, query="dad")) == 1

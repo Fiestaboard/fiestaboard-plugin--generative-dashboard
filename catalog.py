@@ -73,69 +73,125 @@ def _plugin_name(registry: Any, plugin_id: str) -> str:
     return getattr(manifest, "name", None) or plugin_id
 
 
+def _build_choice(
+    ref: str,
+    group: str,
+    description: str,
+    preview: str,
+    disabled: bool,
+    reason: str,
+) -> VariableChoice:
+    """Assemble one picker row.
+
+    The settings widget renders ``label`` and nothing else — it ignores
+    ``group`` and ``preview`` entirely, and shows ``description`` only as a
+    hover tooltip. So attribution has to be in the label, and the ref goes in
+    the description because that is part of what the search box matches.
+    """
+    return VariableChoice(
+        ref=ref,
+        label=picker_label(ref, group),
+        description=" · ".join(part for part in (preview, description, ref) if part),
+        group=group,
+        preview=preview,
+        disabled=disabled,
+        disabled_reason=reason,
+    )
+
+
+def _matches(choice: VariableChoice, needle: str) -> bool:
+    """Whether *choice* satisfies the search box.
+
+    Searches the label too, so a plugin's display name is findable: a user
+    types "star trek", but the ref only ever says "star_trek_quotes".
+    """
+    if not needle:
+        return True
+    haystack = f"{choice.label} {choice.ref} {choice.description} {choice.disabled_reason}"
+    return needle in haystack.lower()
+
+
+def _unusable_reason(plugin_id: str, exclude_plugin_id: str, max_length: object, width: int) -> str:
+    """Why this variable cannot be watched, or "" if it can."""
+    if plugin_id == exclude_plugin_id:
+        return "A dashboard cannot watch itself."
+    if isinstance(max_length, int) and max_length > width:
+        return f"Up to {max_length} characters — too wide for a {width}-cell tile."
+    return ""
+
+
 def variable_catalog(
     exclude_plugin_id: str,
     max_value_width: int,
     query: str = "",
 ) -> list[VariableChoice]:
-    """Every variable the user could watch, including ones they should not.
+    """Every variable the user could watch, including ones they cannot.
 
     Unsuitable variables come back ``disabled`` with a reason rather than
-    omitted, so the picker can explain itself instead of silently hiding them.
+    omitted, so the picker can explain itself instead of silently hiding
+    them. That includes variables belonging to plugins that are installed but
+    switched off: core's catalog covers enabled plugins only, and you cannot
+    decide whether to enable something if you cannot see what it offers.
+
+    Usable options are listed first, so the ones you can actually pick are
+    not buried behind an alphabetically luckier plugin you have turned off.
     """
     registry = _registry()
     metadata = registry.get_all_variables_with_metadata()
     needle = query.strip().lower()
 
-    choices: list[VariableChoice] = []
+    usable: list[VariableChoice] = []
+    unusable: list[VariableChoice] = []
+
     for plugin_id in sorted(metadata):
         group = _plugin_name(registry, plugin_id)
         for name in sorted(metadata[plugin_id]):
             meta = metadata[plugin_id][name] or {}
-            ref = f"{plugin_id}.{name}"
-            description = str(meta.get("description") or "")
-            label = picker_label(ref, group)
+            reason = _unusable_reason(
+                plugin_id, exclude_plugin_id, meta.get("max_length"), max_value_width
+            )
+            choice = _build_choice(
+                ref=f"{plugin_id}.{name}",
+                group=group,
+                description=str(meta.get("description") or ""),
+                preview=str(meta.get("preview") or ""),
+                disabled=bool(reason),
+                reason=reason,
+            )
+            (unusable if reason else usable).append(choice)
 
-            # Search the label too, so the plugin's display name is findable:
-            # a user types "star trek", the ref only says "star_trek_quotes".
-            if needle and needle not in f"{label} {ref} {description}".lower():
-                continue
-
-            disabled = False
-            reason = ""
-            if plugin_id == exclude_plugin_id:
-                disabled = True
-                reason = "A dashboard cannot watch itself."
-            else:
-                max_length = meta.get("max_length")
-                if isinstance(max_length, int) and max_length > max_value_width:
-                    disabled = True
-                    reason = (
-                        f"Up to {max_length} characters — too wide for a "
-                        f"{max_value_width}-cell tile."
-                    )
-
-            preview = str(meta.get("preview") or "")
-            # The settings widget renders `label` and nothing else — it ignores
-            # `group` and `preview` entirely, and shows `description` only as a
-            # hover tooltip. So attribution has to be in the label, or two
-            # plugins that both expose "temp" become indistinguishable. The
-            # search box filters on label + description, which is why the ref
-            # goes in the description: it makes "temp_f" findable.
-            detail = " · ".join(part for part in (preview, description, ref) if part)
-
-            choices.append(
-                VariableChoice(
-                    ref=ref,
-                    label=label,
-                    description=detail,
+    for plugin_id in sorted(_disabled_plugin_ids(registry, set(metadata))):
+        manifest = registry.get_manifest(plugin_id)
+        variables = getattr(manifest, "variables", None)
+        if variables is None:
+            continue
+        group = getattr(manifest, "name", None) or plugin_id
+        for name in sorted(getattr(variables, "simple", {}) or {}):
+            meta = variables.get_variable_metadata(name)
+            reason = _unusable_reason(
+                plugin_id, exclude_plugin_id, getattr(meta, "max_length", None), max_value_width
+            ) or f"Enable {group} to watch its variables."
+            unusable.append(
+                _build_choice(
+                    ref=f"{plugin_id}.{name}",
                     group=group,
-                    preview=preview,
-                    disabled=disabled,
-                    disabled_reason=reason,
+                    description=str(getattr(meta, "description", "") or ""),
+                    preview="",
+                    disabled=True,
+                    reason=reason,
                 )
             )
-    return choices
+
+    return [c for c in usable + unusable if _matches(c, needle)]
+
+
+def _disabled_plugin_ids(registry: Any, enabled: set[str]) -> set[str]:
+    """Installed plugins that expose nothing because they are switched off."""
+    try:
+        installed = set(registry.plugins)
+    except Exception:
+        return set()
+    return installed - enabled
 
 
 def read_values(

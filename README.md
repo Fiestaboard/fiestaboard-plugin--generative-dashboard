@@ -62,9 +62,11 @@ variable's **current value** next to its name — so you select by recognising
 the number you already care about, not by typing `air_quality.aqi`.
 
 Drag to reorder; the order is a priority hint to the model. Variables that
-cannot sensibly go on a dashboard are shown greyed with a reason rather than
-hidden — including this plugin's own variables, since a dashboard cannot watch
-itself.
+cannot be used are shown greyed with a reason rather than hidden — a value too
+wide for a tile, this plugin's own variables (a dashboard cannot watch itself),
+or a plugin you have not enabled yet. That last one matters: core only
+publishes variables for enabled plugins, so without this the picker would
+quietly omit most of what your board can do.
 
 **Notes are the setting worth your time.** A note like *"over 100 is unhealthy,
 over 150 keep the windows shut"* is what turns the model's ranking from a guess
