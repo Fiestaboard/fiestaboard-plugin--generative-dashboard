@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from .catalog import default_label
-from .charset import VALID_COLORS, sanitize, truncate
+from .charset import ACCENT_COLORS, sanitize, truncate
 from .layout import Geometry, Tile, fits
 
 # A run of digits with internal separators: 42, 94,120, 1.25
@@ -97,7 +97,7 @@ def validate_grid(
                     or default_label(ref)
                 ),
                 value=values[ref],
-                color=color if (use_color and color in VALID_COLORS) else None,
+                color=color if (use_color and color in ACCENT_COLORS) else None,
             ),
         ))
         seen.add(ref)

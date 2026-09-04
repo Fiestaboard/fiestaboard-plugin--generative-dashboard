@@ -157,3 +157,56 @@ def test_both_prompts_state_the_board_size():
     for builder in (build_grid_prompt, build_prose_prompt):
         _, user = _prompt(builder)
         assert "6" in user and "22" in user
+
+
+def test_describe_variables_states_how_much_room_a_label_has():
+    # Without this the model writes "TIME" for a 7-char value in a 10-cell
+    # column, and the renderer truncates it to "TI".
+    text = describe_variables(
+        ["a.clock"], {}, {}, {"a.clock": "5:34 PM"}, {}, label_budget=10
+    )
+    # 10 cells, minus a 7-char value, minus the gap, leaves 2.
+    assert "label_max=2" in text
+
+
+def test_describe_variables_label_budget_is_optional():
+    text = describe_variables(["a.x"], {}, {}, {"a.x": "1"}, {})
+    assert "label_max" not in text
+
+
+def test_grid_prompt_tells_the_model_to_use_the_space():
+    system, _ = _prompt(build_grid_prompt)
+    assert "fill" in system.lower() or "use the" in system.lower()
+
+
+def test_a_malformed_json_error_is_worth_retrying():
+    # The model slipped; asking again often works.
+    with patch("requests.post", return_value=_response("not json at all")):
+        with pytest.raises(LLMError) as excinfo:
+            _client().complete("sys", "user")
+    assert excinfo.value.retryable
+
+
+def test_a_network_error_is_not_worth_retrying():
+    # The endpoint is down; it will still be down a millisecond later.
+    with patch("requests.post", side_effect=requests.RequestException("boom")):
+        with pytest.raises(LLMError) as excinfo:
+            _client().complete("sys", "user")
+    assert not excinfo.value.retryable
+
+
+def test_the_grid_prompt_does_not_offer_white_or_black_as_accents():
+    # A white tile on a white board is not an accent, it is noise.
+    system, _ = _prompt(build_grid_prompt, use_color=True)
+    colours = system.split("Valid colors:")[1].split("\n")[0]
+    assert "white" not in colours and "black" not in colours
+
+
+def test_label_budget_accounts_for_a_value_that_gets_its_own_row():
+    # A long value is given the full board width, so its label has more room
+    # than the narrow-column arithmetic would suggest.
+    text = describe_variables(
+        ["a.date"], {}, {}, {"a.date": "09/03/26"}, {},
+        label_budget=10, wide_budget=22,
+    )
+    assert "label_max=13" in text

@@ -10,6 +10,11 @@ from plugins.generative_dashboard.layout import (
 )
 
 
+def _content(lines):
+    """The non-blank lines, since the block is centred rather than top-aligned."""
+    return [line for line in lines if line.strip()]
+
+
 def test_flagship_geometry_is_two_columns_of_eleven():
     geo = geometry(6, 22)
     assert (geo.tile_columns, geo.tile_width, geo.tile_budget) == (2, 11, 12)
@@ -46,25 +51,25 @@ def test_render_grid_never_exceeds_the_board_width():
 
 
 def test_render_grid_places_tiles_left_to_right_then_down():
-    lines = render_grid([Tile("CPU", "42%"), Tile("TEMP", "61F")], geometry(6, 22))
+    lines = _content(render_grid([Tile("CPU", "42%"), Tile("TEMP", "61F")], geometry(6, 22)))
     assert lines[0].startswith("CPU")
     assert "TEMP" in lines[0]
 
 
 def test_render_grid_right_aligns_the_value():
     lines = render_grid([Tile("CPU", "42%")], geometry(3, 15))
-    assert lines[0] == "CPU" + " " * 9 + "42%"
+    assert _content(lines)[0] == "CPU" + " " * 9 + "42%"
 
 
 def test_render_grid_leaves_a_gutter_between_columns():
     lines = render_grid([Tile("A", "1"), Tile("B", "2")], geometry(6, 22))
     # First column gives up one cell so the columns cannot touch.
-    assert lines[0] == "A" + " " * 8 + "1" + " " + "B" + " " * 9 + "2"
+    assert _content(lines)[0] == "A" + " " * 8 + "1" + " " + "B" + " " * 9 + "2"
 
 
 def test_render_grid_prefixes_a_color_marker_when_a_tile_is_accented():
     lines = render_grid([Tile("AQI", "168", "red")], geometry(3, 15))
-    assert lines[0].startswith("{red}")
+    assert _content(lines)[0].startswith("{red}")
 
 
 def test_render_grid_omits_color_when_color_is_disabled():
@@ -74,13 +79,14 @@ def test_render_grid_omits_color_when_color_is_disabled():
 
 def test_colored_tile_still_occupies_exactly_the_board_width():
     lines = render_grid([Tile("AQI", "168", "red")], geometry(3, 15), use_color=True)
-    assert cell_width(lines[0]) == 15
+    assert cell_width(_content(lines)[0]) == 15
 
 
-def test_render_grid_puts_the_banner_on_the_first_row():
+def test_render_grid_puts_the_banner_above_the_tiles():
     lines = render_grid([Tile("CPU", "42%")], geometry(6, 22), banner="AIR QUALITY BAD")
-    assert lines[0].strip() == "AIR QUALITY BAD"
-    assert "CPU" in lines[1]
+    content = _content(lines)
+    assert content[0].strip() == "AIR QUALITY BAD"
+    assert "CPU" in content[1]
 
 
 def test_banner_costs_one_row_of_tiles():
@@ -93,7 +99,8 @@ def test_banner_costs_one_row_of_tiles():
 
 def test_render_grid_pads_unused_rows_with_blanks():
     lines = render_grid([Tile("CPU", "42%")], geometry(6, 22))
-    assert lines[5].strip() == ""
+    assert len(lines) == 6
+    assert len(_content(lines)) == 1
 
 
 def test_wrap_center_returns_exactly_the_row_count():
@@ -122,3 +129,61 @@ def test_fits_accepts_text_that_wraps_within_the_board():
 
 def test_wrap_center_drops_overflow_rather_than_returning_extra_rows():
     assert len(wrap_center("WORD " * 40, 3, 15)) == 3
+
+
+def test_render_grid_centers_the_content_block_vertically():
+    # Content clustered at the top with dead rows beneath reads like a bug.
+    lines = render_grid([Tile("CPU", "42%"), Tile("TEMP", "61F")], geometry(6, 22))
+    assert lines[0].strip() == ""
+    assert "CPU" in lines[2]
+    assert lines[5].strip() == ""
+
+
+def test_a_full_grid_is_not_padded():
+    geo = geometry(6, 22)
+    tiles = [Tile(f"L{i}", str(i)) for i in range(12)]
+    lines = render_grid(tiles, geo)
+    assert all(line.strip() for line in lines)
+
+
+def test_banner_stays_with_the_block_it_heads():
+    lines = render_grid([Tile("CPU", "42%")], geometry(6, 22), banner="HEADS UP")
+    banner_row = next(i for i, l in enumerate(lines) if "HEADS UP" in l)
+    tile_row = next(i for i, l in enumerate(lines) if "CPU" in l)
+    assert tile_row == banner_row + 1
+
+
+def test_a_single_tile_row_sits_in_the_middle():
+    lines = render_grid([Tile("CPU", "42%")], geometry(3, 15))
+    assert lines[1].startswith("CPU")
+
+
+def test_a_tile_whose_value_crowds_out_its_label_takes_a_full_row():
+    # "09/03/26" in a 10-cell column leaves one cell for the label, which
+    # renders as "D 09/03/26". Giving it the whole row keeps it labelled.
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("DATE", "09/03/26")], geo))
+    assert lines[0].startswith("DATE")
+    assert lines[0].endswith("09/03/26")
+    assert cell_width(lines[0]) == 22
+
+
+def test_short_values_still_share_a_row():
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("CPU", "42%"), Tile("AQI", "168")], geo))
+    assert len(lines) == 1
+
+
+def test_a_wide_tile_does_not_swallow_its_neighbours():
+    geo = geometry(6, 22)
+    tiles = [Tile("CPU", "42%"), Tile("DATE", "09/03/26"), Tile("AQI", "168")]
+    lines = _content(render_grid(tiles, geo))
+    assert len(lines) == 3
+    assert "CPU" in lines[0] and "DATE" in lines[1] and "AQI" in lines[2]
+
+
+def test_a_single_column_board_never_needs_widening():
+    # A Note's column is already the full width.
+    geo = geometry(3, 15)
+    lines = _content(render_grid([Tile("DATE", "09/03/26")], geo))
+    assert lines[0] == "DATE" + " " * 3 + "09/03/26"

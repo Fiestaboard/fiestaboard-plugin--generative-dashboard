@@ -11,7 +11,8 @@ import re
 
 import requests
 
-from .layout import Geometry
+from .charset import ACCENT_COLORS
+from .layout import Geometry, column_inner
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,16 @@ _CHARSET_RULES = (
 
 
 class LLMError(Exception):
-    """The endpoint failed, or its answer was not usable JSON."""
+    """The endpoint failed, or its answer was not usable JSON.
+
+    ``retryable`` separates the two: a model that emitted broken JSON will
+    often get it right when asked again, whereas an unreachable endpoint will
+    still be unreachable a millisecond later.
+    """
+
+    def __init__(self, message: str, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class DashboardLLM:
@@ -71,15 +81,15 @@ class DashboardLLM:
         except requests.RequestException as exc:
             raise LLMError(f"Request failed: {exc}") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"Malformed response: {exc}") from exc
+            raise LLMError(f"Malformed response: {exc}", retryable=True) from exc
 
         cleaned = _FENCE_RE.sub("", content).strip()
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            raise LLMError(f"Response was not JSON: {exc}") from exc
+            raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
         if not isinstance(parsed, dict):
-            raise LLMError("Response JSON was not an object")
+            raise LLMError("Response JSON was not an object", retryable=True)
         return parsed
 
 
@@ -89,13 +99,29 @@ def describe_variables(
     notes: dict[str, str],
     current: dict[str, str],
     previous: dict[str, str],
+    label_budget: int | None = None,
+    wide_budget: int | None = None,
 ) -> str:
-    """One line per variable: name, label, note, and what it did."""
+    """One line per variable: name, label, note, what it did, and how much
+    room its label has once the value is placed.
+
+    ``label_budget`` is the tile's inner width. Without it the model writes
+    "TIME" beside a seven-character clock in a ten-cell column, and the
+    renderer has to cut it to "TI".
+    """
     lines: list[str] = []
     for ref in refs:
         if ref not in current:
             continue
         parts = [ref, f'label="{labels.get(ref, "")}"', f'now="{current[ref]}"']
+        if label_budget is not None:
+            width = len(str(current[ref]))
+            # A value too wide for a column is given the whole row, so its
+            # label has the board's full width to work with.
+            budget = label_budget
+            if wide_budget is not None and width > label_budget - 4:
+                budget = wide_budget
+            parts.append(f"label_max={max(0, budget - width - 1)}")
         if ref in previous and previous[ref] != current[ref]:
             parts.append(f'was="{previous[ref]}"')
         if notes.get(ref):
@@ -114,9 +140,15 @@ def _context_block(
     previous_board: list[str],
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
+    # The narrowest column is the one that gives up a cell to the gutter.
+    described = describe_variables(
+        refs, labels, notes, current, previous,
+        label_budget=column_inner(geo),
+        wide_budget=geo.cols if geo.tile_columns > 1 else None,
+    )
     return (
         f"BOARD: {geo.rows} rows of {geo.cols} columns.\n\n"
-        f"AVAILABLE STATS:\n{describe_variables(refs, labels, notes, current, previous)}\n\n"
+        f"AVAILABLE STATS:\n{described}\n\n"
         f"CURRENTLY ON THE BOARD:\n{board}\n"
     )
 
@@ -141,8 +173,8 @@ def build_grid_prompt(
     if use_color:
         colour_rule = (
             'Set "color" on at most one or two tiles, and only when a value has '
-            "moved enough to deserve attention. Valid colors: red, orange, "
-            "yellow, green, blue, violet, white, black.\n\n"
+            "moved enough to deserve attention. Valid colors: "
+            f"{', '.join(ACCENT_COLORS)}.\n\n"
         )
         example = (
             '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}], '
@@ -162,7 +194,14 @@ def build_grid_prompt(
         "to right then down. The most important stat goes first.\n\n"
         "You choose WHICH stats appear, their order, and what they are called. "
         "You never type a value: name the variable and the value is filled in "
-        "for you. Labels should be short, a few characters at most.\n\n"
+        "for you.\n\n"
+        "Each stat below carries a label_max: the number of cells its label "
+        "may use once its value is placed. Never exceed it — a longer label is "
+        "cut off mid-word. Abbreviate to fit: PRESSURE at label_max=4 becomes "
+        "PRES. A stat with a long value is given a whole row to itself, which "
+        "is why some label_max values are generous.\n\n"
+        "Fill the board. Empty rows look broken, so use the slots you have "
+        "unless there is genuinely nothing else worth showing.\n\n"
         f"{colour_rule}"
         'Optionally set "banner" to one short line across the top when '
         f"something deserves a sentence. A banner costs {geo.tile_columns} "

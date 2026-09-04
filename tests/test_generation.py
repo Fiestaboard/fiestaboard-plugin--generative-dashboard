@@ -38,6 +38,14 @@ def _reply(payload):
     return response
 
 
+def _reply_text(content):
+    """A 200 response whose body is not the JSON we asked for."""
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"choices": [{"message": {"content": content}}]}
+    return response
+
+
 def _generate(plugin, config=None):
     return plugin._generate(
         GEO, config or plugin.config, WATCHLIST, CURRENT, PREVIOUS, []
@@ -170,3 +178,15 @@ def test_an_unexpected_exception_does_not_wedge_the_plugin(plugin):
         plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
                     plugin._config_generation)
     assert "flagship" not in plugin._inflight
+
+
+def test_malformed_json_is_retried_before_giving_up(plugin):
+    with patch("requests.post", side_effect=[_reply_text("nonsense"), _reply(GOOD_GRID)]):
+        _, _, _, headline, _ = _generate(plugin)
+    assert headline == "AQI 168"
+
+
+def test_malformed_json_twice_gives_up(plugin):
+    with patch("requests.post", return_value=_reply_text("nonsense")) as post:
+        assert _generate(plugin) is None
+    assert post.call_count == 2

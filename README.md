@@ -13,10 +13,16 @@ redraw, no flicker.
 **`grid`** — a tiled layout of label/value stats.
 
 ```
-CPU     42%  TEMP     61F
-AQI    168   BTC   94,120
-DISK    71%  UP    4D 2H
+    MARKET UPDATE
+SYMBO GOOG PRIC 339.08
+CHAN  1.59 TIME  17:46
+DATE          09/03/26
 ```
+
+The block is centred rather than pinned to the top, so a half-full board reads
+as a layout rather than a fault. A stat whose value is too long to leave room
+for a label — a date, a timestamp — is given a whole row to itself instead of
+being labelled `D`.
 
 **`prose`** — a sentence about what changed, sized to the board.
 

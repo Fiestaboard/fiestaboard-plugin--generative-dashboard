@@ -12,6 +12,10 @@ VALID_COLORS = frozenset(
     {"red", "orange", "yellow", "green", "blue", "violet", "purple", "white", "black"}
 )
 
+# The subset a model may use to draw attention. White and black are the board's
+# own background tones, so as "accents" they are invisible or merely noisy.
+ACCENT_COLORS = ("red", "orange", "yellow", "green", "blue", "violet")
+
 # Single-brace markers, matching src/text_to_board.py's COLOR_MARKER_PATTERN.
 COLOR_MARKER_RE = re.compile(
     r"\{(?:red|orange|yellow|green|blue|violet|purple|white|black)\}",

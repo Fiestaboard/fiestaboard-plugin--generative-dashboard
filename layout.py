@@ -13,6 +13,10 @@ from .charset import cell_width, sanitize, truncate
 # would leave no room for either half.
 _MIN_TILE_WIDTH = 11
 
+# Shortest label worth printing. Below this a label is a stub — "D" for DATE
+# tells you nothing — so the tile is given the whole row instead.
+_MIN_LABEL = 3
+
 # Word wrapping wastes ragged-right space, so the advertised prose budget is
 # discounted. The real check is fits(), which actually wraps.
 _PROSE_FILL = 0.85
@@ -37,6 +41,18 @@ class Tile:
     label: str
     value: str
     color: str | None = None
+
+
+def column_inner(geo: "Geometry") -> int:
+    """Usable width of one tile column, after the gutter is taken."""
+    return geo.tile_width - 1 if geo.tile_columns > 1 else geo.tile_width
+
+
+def needs_full_row(value: str, geo: "Geometry") -> bool:
+    """Whether *value* leaves too little room for a real label in one column."""
+    if geo.tile_columns == 1:
+        return False
+    return cell_width(sanitize(value)) > column_inner(geo) - _MIN_LABEL - 1
 
 
 def geometry(rows: int, cols: int) -> Geometry:
@@ -80,21 +96,42 @@ def render_grid(
     grid_rows = geo.rows - len(lines)
     placed = list(tiles[: geo.tile_columns * grid_rows])
 
-    for row in range(grid_rows):
-        chunk = placed[row * geo.tile_columns : (row + 1) * geo.tile_columns]
-        if not chunk:
-            lines.append("")
-            continue
-        cells: list[str] = []
-        for column, tile in enumerate(chunk):
+    def flush(buffer: list[Tile]) -> None:
+        cells = [
             # Every column but the last gives up one cell as a gutter.
-            is_last = column == geo.tile_columns - 1
-            cells.append(
-                _render_tile(tile, geo.tile_width if is_last else geo.tile_width - 1, use_color)
+            _render_tile(
+                tile,
+                geo.tile_width if column == geo.tile_columns - 1 else geo.tile_width - 1,
+                use_color,
             )
+            for column, tile in enumerate(buffer)
+        ]
         lines.append(" ".join(cells).rstrip())
 
-    return lines[: geo.rows]
+    buffer: list[Tile] = []
+    for tile in placed:
+        if len(lines) >= geo.rows:
+            break
+        # A value too long to leave room for a label gets the whole row, rather
+        # than being labelled "D" and leaving the reader to guess.
+        if needs_full_row(tile.value, geo):
+            if buffer:
+                flush(buffer)
+                buffer = []
+            if len(lines) < geo.rows:
+                lines.append(_render_tile(tile, geo.cols, use_color).rstrip())
+            continue
+        buffer.append(tile)
+        if len(buffer) == geo.tile_columns:
+            flush(buffer)
+            buffer = []
+    if buffer and len(lines) < geo.rows:
+        flush(buffer)
+
+    # Centre the block, banner included, rather than letting it cling to the
+    # top with dead rows beneath it — that reads as a bug rather than a layout.
+    top = (geo.rows - len(lines)) // 2
+    return ([""] * top + lines + [""] * geo.rows)[: geo.rows]
 
 
 def _wrap(text: str, cols: int) -> list[str]:

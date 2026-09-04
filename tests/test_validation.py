@@ -203,3 +203,9 @@ def test_prose_rejects_empty_text():
 def test_prose_rejects_text_that_is_empty_after_sanitising():
     with pytest.raises(ValidationError):
         validate_prose({"text": "|||"}, geo=GEO, current={}, previous={})
+
+
+def test_grid_rejects_white_and_black_as_tile_accents():
+    for colour in ("white", "black"):
+        payload = {"tiles": [{"label": "AQI", "variable": "air.aqi", "color": colour}]}
+        assert _validate(payload).tiles[0].color is None

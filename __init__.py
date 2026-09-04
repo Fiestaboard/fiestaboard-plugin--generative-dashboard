@@ -404,7 +404,11 @@ class GenerativeDashboardPlugin(PluginBase):
             try:
                 payload = client.complete(system, user)
             except LLMError as exc:
-                logger.warning("Dashboard LLM call failed: %s", exc)
+                logger.warning(
+                    "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
+                )
+                if exc.retryable and attempt == 0:
+                    continue
                 return None
 
             try:
