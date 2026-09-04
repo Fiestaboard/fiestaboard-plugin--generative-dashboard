@@ -21,11 +21,15 @@ class FakeResult:
 
 class FakeVariables:
     def __init__(self, simple):
+        # {name: {"max_length": int|None, "description": str}} or {name: {}}
         self.simple = simple
 
     def get_variable_metadata(self, name):
-        return SimpleNamespace(description="", type="string", max_length=6,
-                               group="", example="")
+        meta = self.simple.get(name) or {}
+        return SimpleNamespace(
+            description=meta.get("description", ""), type="string",
+            max_length=meta.get("max_length", 6), group="", example="",
+        )
 
 
 class FakeRegistry:
@@ -39,6 +43,10 @@ class FakeRegistry:
         self.fetched = []
 
     @property
+    def enabled_plugins(self):
+        return {p: object() for p in getattr(self, "_enabled_ids", set(self._metadata))}
+
+    @property
     def plugins(self):
         return {**{p: object() for p in self._metadata}, **{p: object() for p in self._installed}}
 
@@ -48,10 +56,10 @@ class FakeRegistry:
     def get_manifest(self, plugin_id):
         if plugin_id not in self._names:
             return None
-        return SimpleNamespace(
-            name=self._names[plugin_id],
-            variables=FakeVariables(self._installed.get(plugin_id, {})),
-        )
+        # Enabled plugins declare the same variables in their manifest as they
+        # publish through the metadata call; the fake mirrors that.
+        declared = self._installed.get(plugin_id) or self._metadata.get(plugin_id) or {}
+        return SimpleNamespace(name=self._names[plugin_id], variables=FakeVariables(declared))
 
     def fetch_plugin_data(self, plugin_id, board=None):
         self.fetched.append(plugin_id)
@@ -400,3 +408,28 @@ def test_eligibility_is_judged_against_the_board_not_one_column(fake):
 
     assert eligible_refs("generative_dashboard", 22) == ["stocks.price"]
     assert eligible_refs("generative_dashboard", 11) == []
+
+
+def test_eligible_refs_never_builds_a_template_context(monkeypatch):
+    """The render path must not fan out to every plugin.
+
+    ``get_all_variables_with_metadata`` calls ``build_template_context``, which
+    dispatches to a thread pool that calls *this* plugin's ``get_data`` again.
+    Reaching it from ``fetch_data`` is an infinite recursion that hangs the
+    whole API, not just this plugin.
+    """
+
+    class Exploding(FakeRegistry):
+        def get_all_variables_with_metadata(self):
+            raise AssertionError("eligible_refs must not build a template context")
+
+    registry = Exploding(
+        installed={"weather": {"temp": {}}},
+        names={"weather": "Weather"},
+    )
+    registry._enabled_ids = {"weather"}
+    monkeypatch.setattr(catalog, "_registry", lambda: registry)
+
+    from plugins.generative_dashboard.catalog import eligible_refs
+
+    assert eligible_refs("generative_dashboard", 22) == ["weather.temp"]

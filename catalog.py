@@ -188,15 +188,36 @@ def variable_catalog(
 def eligible_refs(exclude_plugin_id: str, max_value_width: int) -> list[str]:
     """Every variable that could actually be put on a board right now.
 
-    This is the default watchlist. Asking a user to hand-pick a pool only
-    duplicates the model's own job — choosing what matters is the whole point
-    of the plugin — so the picker exists to *narrow* this, not to build it.
+    This is the default pool, and it runs on the render path, so it reads
+    manifests only. It must never reach ``get_all_variables_with_metadata``:
+    that calls ``build_template_context``, which dispatches to a thread pool
+    that calls this plugin's own ``get_data`` again — an infinite recursion
+    that exhausts the pool and hangs every API endpoint, not just this plugin.
+
+    Eligibility needs no live values anyway. A variable's declared max_length
+    is enough to know whether it could ever fit the board.
     """
-    return [
-        choice.ref
-        for choice in variable_catalog(exclude_plugin_id, max_value_width)
-        if not choice.disabled
-    ]
+    registry = _registry()
+    try:
+        enabled = list(registry.enabled_plugins)
+    except Exception:
+        return []
+
+    refs: list[str] = []
+    for plugin_id in sorted(enabled):
+        if plugin_id == exclude_plugin_id:
+            continue
+        manifest = registry.get_manifest(plugin_id)
+        variables = getattr(manifest, "variables", None)
+        if variables is None:
+            continue
+        for name in sorted(getattr(variables, "simple", {}) or {}):
+            meta = variables.get_variable_metadata(name)
+            max_length = getattr(meta, "max_length", None)
+            if isinstance(max_length, int) and max_length > max_value_width:
+                continue
+            refs.append(f"{plugin_id}.{name}")
+    return refs
 
 
 def _disabled_plugin_ids(registry: Any, enabled: set[str]) -> set[str]:

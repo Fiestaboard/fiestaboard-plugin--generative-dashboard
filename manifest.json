@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -19,74 +19,6 @@
         "title": "Enable Generative Dashboard",
         "default": false
       },
-      "watchlist": {
-        "type": "array",
-        "title": "Limit To Specific Variables (optional)",
-        "description": "Leave this empty and every variable from your enabled plugins is sent to the AI, which picks what to show. Add variables here only to restrict it to those \u2014 for example to keep the board on one subject, or to mute something that changes constantly.",
-        "items": {
-          "type": "string"
-        },
-        "maxItems": 100,
-        "default": [],
-        "ui:widget": "remote-options",
-        "ui:options": {
-          "options_id": "variables",
-          "multiple": true,
-          "searchable": true,
-          "server_search": true,
-          "reorderable": true,
-          "labels_field": "labels",
-          "cache_seconds": 30,
-          "placeholder": "Empty means everything. Add rows only to restrict."
-        }
-      },
-      "labels": {
-        "type": "object",
-        "title": "Display Labels",
-        "description": "Short board label per variable. Filled in by the picker.",
-        "default": {}
-      },
-      "pinned": {
-        "type": "array",
-        "title": "Always Show These",
-        "description": "Variables that must appear even on a quiet day.",
-        "items": {
-          "type": "string"
-        },
-        "default": [],
-        "ui:widget": "remote-options",
-        "ui:options": {
-          "options_id": "watched",
-          "multiple": true,
-          "searchable": true,
-          "depends_on": [
-            "watchlist"
-          ],
-          "placeholder": "Pick from your watched variables"
-        }
-      },
-      "notes": {
-        "type": "object",
-        "title": "What a Variable Means",
-        "description": "Free text per variable, e.g. 'over 100 is unhealthy' or 'trivia, only show it on a quiet day'. This is what turns the AI's ranking from a guess into a judgement, and it is the single most useful thing you can set here.",
-        "default": {}
-      },
-      "thresholds": {
-        "type": "object",
-        "title": "Per-Variable Sensitivity",
-        "description": "Percent change needed before a variable counts as having moved. Overrides the global default.",
-        "default": {}
-      },
-      "output_mode": {
-        "type": "string",
-        "title": "Output Mode",
-        "description": "grid lays stats out in tiles; prose writes a short sentence about what changed.",
-        "enum": [
-          "grid",
-          "prose"
-        ],
-        "default": "grid"
-      },
       "api_base_url": {
         "type": "string",
         "title": "API Base URL",
@@ -102,7 +34,18 @@
       "model": {
         "type": "string",
         "title": "Model",
-        "default": "gpt-4o-mini"
+        "default": "gpt-4o-mini",
+        "description": "Any model the endpoint serves. gpt-4o-mini is plenty for this."
+      },
+      "output_mode": {
+        "type": "string",
+        "title": "Output Mode",
+        "description": "grid lays stats out in tiles; prose writes a short sentence about what changed.",
+        "enum": [
+          "grid",
+          "prose"
+        ],
+        "default": "grid"
       },
       "temperature": {
         "type": "number",
@@ -129,14 +72,103 @@
       },
       "use_color": {
         "type": "boolean",
-        "title": "Colour Accents",
-        "description": "Let the model flag an outlier with a single coloured tile.",
+        "title": "Color Accents",
+        "description": "Let the model flag an outlier with a single colored tile.",
         "default": true
+      },
+      "watchlist": {
+        "type": "array",
+        "title": "Limit To Specific Variables (optional)",
+        "description": "Leave this empty and every variable from your enabled plugins is sent to the AI, which picks what to show. Add variables here only to restrict it to those \u2014 for example to keep the board on one subject, or to mute something that changes constantly.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "default": [],
+        "ui:widget": "remote-options",
+        "ui:options": {
+          "options_id": "variables",
+          "multiple": true,
+          "searchable": true,
+          "server_search": true,
+          "reorderable": true,
+          "labels_field": "labels",
+          "cache_seconds": 30,
+          "placeholder": "Empty means everything. Add rows only to restrict."
+        }
+      },
+      "labels": {
+        "type": "object",
+        "title": "Display Labels",
+        "description": "Filled in by the variable picker above \u2014 the small box beside each chosen row.",
+        "properties": {},
+        "default": {}
+      },
+      "pinned": {
+        "type": "array",
+        "title": "Always Show These",
+        "description": "Variables that must appear even on a quiet day.",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "ui:widget": "remote-options",
+        "ui:options": {
+          "options_id": "watched",
+          "multiple": true,
+          "searchable": true,
+          "depends_on": [
+            "watchlist"
+          ],
+          "placeholder": "Pick from your watched variables"
+        }
+      },
+      "notes": {
+        "type": "array",
+        "title": "Variable Note",
+        "description": "The single most useful thing here. Tell the AI what a number means and it ranks on judgement instead of guesswork.",
+        "default": [],
+        "items": {
+          "type": "object",
+          "properties": {
+            "variable": {
+              "type": "string",
+              "title": "Variable",
+              "description": "e.g. air_quality.aqi"
+            },
+            "note": {
+              "type": "string",
+              "title": "What it means",
+              "description": "e.g. over 100 is unhealthy, keep the windows shut"
+            }
+          }
+        }
+      },
+      "thresholds": {
+        "type": "array",
+        "title": "Sensitivity Override",
+        "description": "Override how far one variable must move before it is worth redrawing the board.",
+        "default": [],
+        "items": {
+          "type": "object",
+          "properties": {
+            "variable": {
+              "type": "string",
+              "title": "Variable",
+              "description": "e.g. air_quality.aqi"
+            },
+            "percent": {
+              "type": "number",
+              "title": "Percent change",
+              "description": "e.g. 2 for a sensitive value, 25 for a noisy one"
+            }
+          }
+        }
       },
       "extra_instructions": {
         "type": "string",
         "title": "Extra Prompt Instructions",
-        "description": "Appended to the system prompt, e.g. 'favour network stats'.",
+        "description": "Appended to the system prompt, e.g. 'favor network stats'.",
         "format": "textarea",
         "default": ""
       }

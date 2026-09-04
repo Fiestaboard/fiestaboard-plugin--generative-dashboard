@@ -133,3 +133,12 @@ def test_a_complete_catalog_does_not_claim_there_is_more(plugin):
     result = _options(plugin, "variables", limit=100)
     assert not result.has_more
     assert result.total == 2
+
+
+def test_the_pin_picker_explains_an_empty_list(plugin, monkeypatch):
+    # "No options available" with no reason reads as a broken picker.
+    monkeypatch.setattr(catalog, "eligible_refs", lambda exclude, width: [])
+    plugin.config = dict(plugin.config, watchlist=[])
+    result = _options(plugin, "watched")
+    assert result.options == []
+    assert result.error and "enable" in result.error.lower()

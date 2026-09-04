@@ -164,11 +164,30 @@ class GenerativeDashboardPlugin(PluginBase):
             return {}
         return {str(k): sanitize(str(v)) for k, v in raw.items()}
 
-    def _notes(self, config: dict[str, Any]) -> dict[str, str]:
-        raw = config.get("notes") or {}
-        if not isinstance(raw, dict):
+    @staticmethod
+    def _rows_to_map(raw: Any, value_key: str) -> dict[str, str]:
+        """Read a {variable, <value_key>} row list into a map.
+
+        The settings form cannot render an open-ended object — it has no
+        key/value editor — so these arrive as rows. A plain map is still
+        accepted, since that is what older configs hold.
+        """
+        if isinstance(raw, dict):
+            return {str(k): str(v) for k, v in raw.items()}
+        if not isinstance(raw, list):
             return {}
-        return {str(k): str(v) for k, v in raw.items()}
+        out: dict[str, str] = {}
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            ref = str(row.get("variable") or "").strip()
+            value = row.get(value_key)
+            if ref and value not in (None, ""):
+                out[ref] = str(value)
+        return out
+
+    def _notes(self, config: dict[str, Any]) -> dict[str, str]:
+        return self._rows_to_map(config.get("notes"), "note")
 
     def _pinned(self, config: dict[str, Any]) -> list[str]:
         raw = config.get("pinned") or []
@@ -177,13 +196,10 @@ class GenerativeDashboardPlugin(PluginBase):
         return [r for r in raw if isinstance(r, str)]
 
     def _thresholds(self, config: dict[str, Any]) -> dict[str, float]:
-        raw = config.get("thresholds") or {}
-        if not isinstance(raw, dict):
-            return {}
         out: dict[str, float] = {}
-        for key, value in raw.items():
+        for ref, value in self._rows_to_map(config.get("thresholds"), "percent").items():
             try:
-                out[str(key)] = float(value)
+                out[ref] = float(value)
             except (TypeError, ValueError):
                 continue
         return out
@@ -446,7 +462,15 @@ class GenerativeDashboardPlugin(PluginBase):
         if request.options_id == "variables":
             return self._variable_options(request)
         if request.options_id == "watched":
-            return OptionsResult(options=self._watched_options(request))
+            options = self._watched_options(request)
+            if not options:
+                # An empty picker with no reason reads as broken.
+                return OptionsResult(
+                    options=[],
+                    error="Nothing to pin yet — enable some plugins so their "
+                    "variables become available.",
+                )
+            return OptionsResult(options=options)
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
     def _variable_options(self, request: OptionsRequest) -> OptionsResult:

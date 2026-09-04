@@ -291,3 +291,45 @@ def test_with_nothing_enabled_anywhere_it_asks_for_plugins_not_variables(plugin,
     result = _fetch(plugin)
     assert result.data["degraded"] == "unconfigured"
     assert "PLUGIN" in " ".join(result.formatted_lines)
+
+
+def test_notes_are_read_from_the_row_form(plugin):
+    # The settings form cannot render an open-ended object, so notes are rows.
+    plugin.config = dict(plugin.config, notes=[
+        {"variable": "air.aqi", "note": "over 100 is unhealthy"},
+        {"variable": "sys.cpu", "note": "rarely matters"},
+    ])
+    assert plugin._notes(plugin.config) == {
+        "air.aqi": "over 100 is unhealthy",
+        "sys.cpu": "rarely matters",
+    }
+
+
+def test_notes_still_accept_the_old_map_form(plugin):
+    plugin.config = dict(plugin.config, notes={"air.aqi": "over 100 is unhealthy"})
+    assert plugin._notes(plugin.config) == {"air.aqi": "over 100 is unhealthy"}
+
+
+def test_incomplete_note_rows_are_ignored(plugin):
+    plugin.config = dict(plugin.config, notes=[
+        {"variable": "", "note": "orphan"}, {"variable": "a.b"}, "nonsense",
+    ])
+    assert plugin._notes(plugin.config) == {}
+
+
+def test_thresholds_are_read_from_the_row_form(plugin):
+    plugin.config = dict(plugin.config, thresholds=[
+        {"variable": "air.aqi", "percent": 2},
+        {"variable": "sys.cpu", "percent": "25"},
+    ])
+    assert plugin._thresholds(plugin.config) == {"air.aqi": 2.0, "sys.cpu": 25.0}
+
+
+def test_thresholds_still_accept_the_old_map_form(plugin):
+    plugin.config = dict(plugin.config, thresholds={"air.aqi": 2})
+    assert plugin._thresholds(plugin.config) == {"air.aqi": 2.0}
+
+
+def test_unparseable_threshold_rows_are_ignored(plugin):
+    plugin.config = dict(plugin.config, thresholds=[{"variable": "a.b", "percent": "soon"}])
+    assert plugin._thresholds(plugin.config) == {}
