@@ -471,3 +471,30 @@ def test_read_values_returns_what_arrived_before_the_deadline(fake):
     values = read_values(["fast.v", "slow.v"], None, "generative_dashboard", timeout=1.0)
     assert time.monotonic() - start < 3.0
     assert values == {"fast.v": "ok"}
+
+
+def test_a_straggler_falls_back_to_its_last_known_value(fake):
+    """Waiting out a slow plugin every cycle is what pushes a render toward
+    core's 15s cliff. A recent value is better than a long wait."""
+    import time
+
+    class Stuck(FakeRegistry):
+        def fetch_plugin_data(self, plugin_id, board=None):
+            if plugin_id == "slow":
+                time.sleep(30)
+            return FakeResult({"v": "fresh"})
+
+    fake(Stuck(data={"fast": {"v": "fresh"}, "slow": {"v": "fresh"}}))
+    values = read_values(
+        ["fast.v", "slow.v"], None, "generative_dashboard",
+        timeout=0.5, fallback={"slow.v": "remembered"},
+    )
+    assert values == {"fast.v": "fresh", "slow.v": "remembered"}
+
+
+def test_fallback_never_overrides_a_value_that_did_arrive(fake):
+    fake(FakeRegistry(data={"fast": {"v": "fresh"}}))
+    values = read_values(
+        ["fast.v"], None, "generative_dashboard", fallback={"fast.v": "stale"}
+    )
+    assert values == {"fast.v": "fresh"}

@@ -23,7 +23,7 @@ WATCHLIST = ["air.aqi", "wx.temp"]
 def plugin(manifest, config, monkeypatch):
     instance = GenerativeDashboardPlugin(manifest)
     instance.config = config
-    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude: dict(CURRENT))
+    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude, **kw: dict(CURRENT))
     # _run and _generate are driven explicitly here; never spawn a real thread.
     monkeypatch.setattr(instance, "_spawn", lambda *a, **k: None)
     return instance

@@ -235,7 +235,8 @@ def read_values(
     refs: Sequence[str],
     board: Any,
     exclude_plugin_id: str,
-    timeout: float = 5.0,
+    timeout: float = 2.5,
+    fallback: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Current values for *refs*, fetching each source plugin exactly once.
 
@@ -246,8 +247,9 @@ def read_values(
     render context entirely — every one of its variables then renders as
     "???" on the board.
 
-    Whatever has not arrived by the deadline is simply left out, exactly as
-    core does with slow plugins. Refs whose plugin is unavailable, or whose
+    Whatever has not arrived by the deadline falls back to its last known
+    value when one is supplied, which keeps the deadline short without losing
+    a stat every time one source is slow. Refs whose plugin is unavailable, or whose
     variable is absent, are omitted rather than blanked — the gate reads that
     absence as a real change.
     """
@@ -277,6 +279,11 @@ def read_values(
             )
 
         values: dict[str, str] = {}
+        late = {futures[f] for f in not_done}
+        if fallback:
+            for ref, value in fallback.items():
+                if ref.partition(".")[0] in late:
+                    values[ref] = value
         for future in done:
             plugin_id = futures[future]
             try:

@@ -68,6 +68,7 @@ class BoardState:
     degraded: str = "no_llm"
     generated_at: str = ""
     last_good: str = ""
+    recent: dict[str, str] = field(default_factory=dict)
     last_generated: float = 0.0
     outage_index: int = -1
     failures: int = 0
@@ -226,7 +227,13 @@ class GenerativeDashboardPlugin(PluginBase):
         if not watchlist:
             return self._result(state, fallback.setup_lines(geo), "unconfigured", 0)
 
-        values = catalog.read_values(watchlist, self.board, self.plugin_id)
+        values = catalog.read_values(
+            watchlist, self.board, self.plugin_id, fallback=state.recent
+        )
+        if values:
+            # Remember what we saw, so a slow source next cycle shows its
+            # last value instead of vanishing off the board.
+            state.recent = dict(values)
         if not values:
             # Pick the message once per outage, not once per render: with
             # live_data the board redraws constantly, and a joke that changes

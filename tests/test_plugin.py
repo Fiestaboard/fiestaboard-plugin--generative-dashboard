@@ -20,7 +20,7 @@ VALUES = {"air.aqi": "68", "wx.temp": "61F"}
 def plugin(manifest, config, monkeypatch):
     instance = GenerativeDashboardPlugin(manifest)
     instance.config = config
-    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude: dict(VALUES))
+    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude, **kw: dict(VALUES))
     # Generation is exercised explicitly; default to never spawning a worker.
     monkeypatch.setattr(instance, "_spawn", lambda *a, **k: None)
     return instance
@@ -32,7 +32,7 @@ def _fetch(plugin, board=FLAGSHIP):
 
 
 def _values(monkeypatch, values):
-    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude: dict(values))
+    monkeypatch.setattr(catalog, "read_values", lambda refs, board, exclude, **kw: dict(values))
 
 
 def _spy_spawn(plugin, monkeypatch):
