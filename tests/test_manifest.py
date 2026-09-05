@@ -145,3 +145,11 @@ def test_previews_are_literal_board_text(raw):
     for preview in raw["previews"]:
         for line in preview["rows"]:
             assert "{{" not in line, "previews hold literal text, not variables"
+
+
+def test_a_primary_screenshot_is_declared_and_exists(raw):
+    shots = raw.get("screenshots") or []
+    assert any(s.get("primary") for s in shots), "registry requires a primary screenshot"
+    for s in shots:
+        assert (MANIFEST_PATH.parent / s["src"]).exists(), s["src"]
+        assert s.get("alt"), "screenshots need alt text"

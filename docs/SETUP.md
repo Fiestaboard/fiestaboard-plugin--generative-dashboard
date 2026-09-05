@@ -1,98 +1,130 @@
-# Setup
+# Generative Dashboard Setup Guide
 
-## 1. Point it at a model
+Get an AI-curated board running, then tune it — the tuning is where the quality comes from.
 
-The plugin talks to any OpenAI-compatible chat completions endpoint.
+## Overview
 
-**OpenAI** — get a key from <https://platform.openai.com/api-keys>.
+**What it does:** composes your board from every variable your enabled
+plugins expose, choosing what matters right now for the people watching.
 
-- API Base URL: `https://api.openai.com/v1`
-- API Key: your `sk-...` key
-- Model: `gpt-4o-mini` is plenty for this job
+**Prerequisites:**
+- FiestaBoard ≥ 2.10.0
+- An OpenAI-compatible chat endpoint (hosted or local) and its API key
+- At least a few data plugins enabled — the dashboard can only show what
+  your plugins provide
 
-**Ollama, LM Studio, or anything local** — no cloud, no per-call cost.
+**Set expectations before you start:** this plugin is a collaboration
+between four variables — *what you tell it about yourself, which plugins
+feed it, when you want to see what, and which model composes*. All four
+affect output, and each is worth a pass. An untuned install works; a tuned
+one is the reason to run it.
 
-- API Base URL: `http://localhost:11434/v1`
-- API Key: any non-empty string; local endpoints ignore it
-- Model: whatever you have pulled, e.g. `llama3.2`
+## Quick Setup
 
-Small local models are the ones most likely to fail validation. That is safe —
-the board falls back to a plain grid of live numbers — but if you see
-`degraded: no_llm` persistently, try a larger model.
+1. **Enable** the plugin under Integrations.
+2. **Configure the model.** Endpoint URL, API key, model name. See *Choosing
+   a model* below — this choice matters more than any prompt setting.
+3. **Write "Who's Watching."** One paragraph: who glances at this wall, your
+   schedules, what you care about at which times of day, what bores you.
+   This is the single highest-leverage field in the plugin.
+4. **Create the page.** Use the demo page, or a template of six
+   `{{generative_dashboard.rows.N.text}}` lines, and add it to your rotation.
+5. **View, then tune.** Live with it a day, then adjust (see below).
 
-## 2. There is no step 2
+### Choosing a model
 
-Enable the plugin and it watches everything your other enabled plugins expose.
-That is the intended way to run it.
+The author's experience so far:
 
-If you want to narrow the pool, **Watched Variables** is searchable and every
-row names its owning plugin, so `Temp F (Weather)` and `Temp (Home Assistant)`
-are never confused. Reach for it to mute something noisy — `random.coin_flip`
-changes on every read and will keep the board busy for no reason — or to keep
-the board to a single subject.
+- **Hosted mid-tier models (Gemini Flash via OpenRouter) perform well** —
+  good theme choices, correct JSON, sensible color banding, and cheap enough
+  to re-compose four times an hour without thinking about it.
+- **Small local models (e.g. quantized ~26B via Ollama/MLX) have been less
+  successful out of the box** — more malformed JSON (the plugin repairs and
+  retries, but each miss costs a cycle), tersier prose, and weaker layout
+  judgment. This is probably fixable with the right tuning — a lower
+  temperature, a trimmed watchlist so the prompt is smaller, and blunter
+  `extra_instructions` all help — and the plugin's validation means a weak
+  model degrades to a plain-but-correct board, never a wrong one.
 
-Plugins you have not enabled still appear, greyed and labelled *"Enable Dad
-Jokes to watch its variables."* FiestaBoard only publishes variables for
-enabled plugins, so those cannot be selected until you switch the plugin on —
-but you can see what is on offer before deciding.
+If a board feels dumb, try a stronger model *before* touching anything else;
+every guarantee is model-independent, but taste is not.
 
-## 3. Write notes for the ones that matter
+### Tuning, in order of leverage
 
-This is the step people skip and then wonder why the ranking feels arbitrary.
+1. **The audience brief** — rhythms ("one of us commutes Tue–Thu"), stakes
+   ("windows open unless AQI says otherwise"), dayparts ("mornings: weather
+   and the stock price"), and dismissals ("we don't care about sports").
+2. **The model** — see above.
+3. **Which plugins are enabled** — the dashboard's palette. Enable what you
+   want it to draw from; disable what you never want to see.
+4. **Sensitivity and cadence** — `default_threshold_pct` (how big a move
+   earns a re-layout) and `refresh_seconds` (the re-layout floor; values
+   stay live regardless). Paid endpoint? These are your cost knobs.
+5. **Per-variable notes** — for a stat the model keeps misjudging: "over 100
+   is unhealthy", "just trivia, quiet days only".
 
-A note tells the model what a number *means*:
+## Template Variables
 
-- `air_quality.aqi` → "over 100 is unhealthy, over 150 keep the windows shut"
-- `network_speed.download_mbps` → "we pay for 900, under 400 is a problem"
-- `pihole.blocked_today` → "just trivia, only show it on a quiet day"
+| Variable | Description |
+|---|---|
+| `generative_dashboard.rows.{n}.text` | Composed board, one row per entry |
+| `generative_dashboard.prose` | Sentence template, prose/auto mode |
+| `generative_dashboard.headline` | Most important stat right now |
+| `generative_dashboard.reason` | Why the board last changed |
+| `generative_dashboard.degraded` | Empty when healthy |
+| `generative_dashboard.generated_at` | Last composition time (local) |
+| `generative_dashboard.model` | Composing model |
+| `generative_dashboard.stat_count` | Tiles currently placed |
 
-That last one is worth noticing: a note is also how you tell the model
-something is *not* important.
+## Configuration Reference
 
-## 4. Pin anything that must always show
+| Setting | Default | Notes |
+|---|---|---|
+| `audience` | — | The editor's brief; leads every prompt |
+| `api_base_url` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint |
+| `api_key` | — | Required |
+| `model` | `gpt-4o-mini` | See *Choosing a model* |
+| `output_mode` | `auto` | `auto` / `grid` / `prose` |
+| `temperature` | `0.3` | Raise only if boards feel repetitive |
+| `refresh_seconds` | `900` | Re-layout floor (≥120); values live regardless |
+| `default_threshold_pct` | `5` | Move size that earns a re-layout |
+| `use_color` | `true` | Range-rule status lights |
+| `watchlist` | empty | Empty = everything; set to restrict |
+| `pinned` | `[]` | Always-shown variables |
+| `notes` | `[]` | Per-variable meaning, `{variable, note}` rows |
+| `thresholds` | `[]` | Per-variable sensitivity, `{variable, percent}` rows |
+| `extra_instructions` | — | Appended to the system prompt |
 
-**Always Show** offers only variables you already watch. Pinned variables
-survive even when nothing about them is interesting. Use it sparingly — every
-pin is a slot the model cannot use for whatever is actually happening.
+Environment variables: `GENERATIVE_DASHBOARD_ENABLED`,
+`GENERATIVE_DASHBOARD_API_KEY`, `GENERATIVE_DASHBOARD_API_BASE_URL`,
+`GENERATIVE_DASHBOARD_MODEL`, `GENERATIVE_DASHBOARD_OUTPUT_MODE` (all
+optional; settings take precedence).
 
-## 5. Tune the sensitivity
+## Troubleshooting
 
-`default_threshold_pct` is how far a number must move before the board is worth
-redrawing. The default of 5% suits most things.
+**The board shows plain stats with no title (`degraded: no_llm`).**
+The model is unreachable or its replies keep failing validation. Check the
+endpoint and key first; with a local model, see *Choosing a model* — the
+fallback board is correct, just uncurated.
 
-Override it per variable under **Per-Variable Sensitivity** when a number's
-natural noise differs from its significance:
+**A wall of pollen counts and currency rates.**
+The cold-start fallback before the first-ever composition. If it persists,
+the model has never successfully composed — same causes as above.
 
-- CPU load swings constantly and rarely matters → `25`
-- AQI matters at small moves → `2`
+**`COMPOSING...` on the bottom row.**
+Normal: the first composition is being drafted. It resolves within a minute.
 
-Set it too low and the board redraws constantly and costs money. Set it too
-high and it goes stale. If in doubt, start high and lower it.
+**Boards re-compose too often / API bill surprises.**
+Raise `default_threshold_pct` (5 → 10) and `refresh_seconds` (900 → 1800).
+Nothing is ever generated when no watched value moved.
 
-## 6. Choose a mode
+**A stat is missing its unit, or a label is clipped.**
+Units are inferred from plugin manifests and re-established each
+composition; a clipped label means the model ignored its budget — both
+self-correct on the next re-layout. Persistent offenders can be renamed via
+the watchlist picker's label box.
 
-Start with `grid`. Switch to `prose` if you would rather the board tell you what
-changed than show you a table.
-
-Prose is stricter with itself: the model may only use numbers exactly as they
-were given to it, never computed or rounded. A sentence that invents a figure is
-rejected and the board falls back rather than showing you something wrong.
-
-### Do not ask prose mode for percentages
-
-This is a real trap, verified against a local Gemma 4. Put something like
-*"always state the percentage change"* in **Extra Prompt Instructions** and the
-model will happily oblige:
-
-```
-AQI ROSE 441.9354838709677%. KEEP WINDOWS SHUT.
-```
-
-That number was computed, not given, so every response is rejected and the
-board falls back to the plain grid *permanently* — a dashboard that looks
-broken for a reason buried in a settings box.
-
-The guard is doing its job: 441.9354838709677 is both wrong to show on a
-split-flap board and a number nobody handed the model. But if you want change
-expressed as a percentage, the right move is a per-variable note explaining the
-significance ("under 500 is a problem"), not an instruction to do arithmetic.
+**Why did the board change?**
+`generative_dashboard.reason` carries the model's own explanation, and the
+composition log (`composition_log.jsonl` beside the plugin) records every
+composition with the model's reasoning — the file to read when tuning.
