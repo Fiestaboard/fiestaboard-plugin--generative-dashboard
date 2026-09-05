@@ -10,6 +10,12 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
+
+# One shared pool for value reads. A pool per call leaked a thread for every
+# straggling source plugin on every render — bounded in theory, unsightly in
+# practice, and non-daemon threads delay process shutdown. Sixteen workers
+# ride out a slow plugin without starving the next cycle.
+_READ_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="gd-read")
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -390,41 +396,38 @@ def read_values(
         return {}
 
     registry = _registry()
-    executor = ThreadPoolExecutor(max_workers=min(8, len(wanted)))
-    try:
-        futures = {
-            executor.submit(registry.fetch_plugin_data, plugin_id, board): plugin_id
-            for plugin_id in wanted
-        }
-        done, not_done = futures_wait(futures, timeout=timeout)
-        if not_done:
-            logger.warning(
-                "%d plugin(s) did not answer within %.1fs and were left out of "
-                "the dashboard this cycle: %s",
-                len(not_done), timeout, [futures[f] for f in not_done],
-            )
+    futures = {
+        _READ_POOL.submit(registry.fetch_plugin_data, plugin_id, board): plugin_id
+        for plugin_id in wanted
+    }
+    done, not_done = futures_wait(futures, timeout=timeout)
+    if not_done:
+        logger.warning(
+            "%d plugin(s) did not answer within %.1fs and were left out of "
+            "the dashboard this cycle: %s",
+            len(not_done), timeout, [futures[f] for f in not_done],
+        )
 
-        values: dict[str, str] = {}
-        late = {futures[f] for f in not_done}
-        if fallback:
-            for ref, value in fallback.items():
-                if ref.partition(".")[0] in late:
-                    values[ref] = value
-        for future in done:
-            plugin_id = futures[future]
-            try:
-                result = future.result()
-            except Exception:
-                logger.warning("Failed reading %s for the dashboard", plugin_id, exc_info=True)
+    values: dict[str, str] = {}
+    late = {futures[f] for f in not_done}
+    if fallback:
+        for ref, value in fallback.items():
+            if ref.partition(".")[0] in late:
+                values[ref] = value
+    for future in done:
+        plugin_id = futures[future]
+        try:
+            result = future.result()
+        except Exception:
+            logger.warning("Failed reading %s for the dashboard", plugin_id, exc_info=True)
+            continue
+        if not getattr(result, "available", False) or not getattr(result, "data", None):
+            continue
+        for name in wanted[plugin_id]:
+            raw = result.data.get(name)
+            if raw is None or isinstance(raw, list | dict):
                 continue
-            if not getattr(result, "available", False) or not getattr(result, "data", None):
-                continue
-            for name in wanted[plugin_id]:
-                raw = result.data.get(name)
-                if raw is None or isinstance(raw, list | dict):
-                    continue
-                values[f"{plugin_id}.{name}"] = str(raw)
-        return values
-    finally:
-        # Never block on stragglers; they finish into a discarded result.
-        executor.shutdown(wait=False, cancel_futures=True)
+            values[f"{plugin_id}.{name}"] = str(raw)
+    for future in not_done:
+        future.cancel()  # not-yet-started stragglers never run at all
+    return values
