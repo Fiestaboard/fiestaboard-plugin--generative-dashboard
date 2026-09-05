@@ -567,3 +567,17 @@ def test_the_models_thinking_is_captured_not_discarded():
 def test_thinking_is_capped_so_it_cannot_bloat_the_log():
     result = _validate(_grid(thinking="x" * 5000))
     assert len(result.thinking) <= 600
+
+
+def test_a_framed_headline_costs_the_prose_a_row():
+    # "343 SCORE AND 192" ended a live board mid-thought: the headline took a
+    # row the fit check never charged for.
+    long_text = "WORD " * 24  # fits 6 rows, not 5
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": long_text, "headline": "ALERT", "banner_color": "red"},
+            geo=GEO, current={}, previous={},
+        )
+    # Without the frame, the same text is fine.
+    result = validate_prose({"text": long_text}, geo=GEO, current={}, previous={})
+    assert result.text

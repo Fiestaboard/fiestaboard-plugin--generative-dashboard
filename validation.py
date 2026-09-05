@@ -379,14 +379,17 @@ def validate_prose(
                 f"Text contains the number {token}, which was not supplied"
             )
 
-    if not fits(text, geo.rows, geo.cols):
-        raise ValidationError(f"Text does not fit {geo.rows} rows of {geo.cols}")
-
+    # A framed colored headline takes the top row, so the text has one
+    # fewer to wrap into — unbudgeted, it ends mid-thought on the board.
+    headline = sanitize(str(data.get("headline") or ""))
     prose_hue = str(data.get("banner_color") or "").lower()
+    rows = geo.rows - (1 if (headline and prose_hue in ACCENT_COLORS) else 0)
+    if not fits(text, rows, geo.cols):
+        raise ValidationError(f"Text does not fit {rows} rows of {geo.cols}")
 
     return ProseResult(
         text=text,
-        headline=sanitize(str(data.get("headline") or "")),
+        headline=headline,
         banner_color=prose_hue if prose_hue in ACCENT_COLORS else None,
         reason=sanitize(str(data.get("reason") or "")),
         log=" ".join(str(data.get("log") or "").split()),
