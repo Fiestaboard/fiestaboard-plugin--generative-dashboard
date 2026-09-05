@@ -193,6 +193,45 @@ class GenerativeDashboardPlugin(PluginBase):
 
     # -- helpers ----------------------------------------------------------
 
+    def _hydrate(self, key: str) -> BoardState:
+        """Resume the last landed composition after a restart or update.
+
+        Cold state made the alphabetical fallback grid — pollen and USD
+        rates — the board's de facto face after every reload. The last
+        composition is in the log, so a fresh instance picks it back up:
+        tiles re-render against live values, the journal reseeds from its
+        own recent lines, and the next material change replaces it normally.
+        """
+        state = BoardState()
+        try:
+            entry = complog.last_for(key)
+            if entry:
+                state.tiles = [
+                    TileSpec(
+                        ref=str(t.get("ref") or ""),
+                        label=str(t.get("label") or ""),
+                        color=t.get("color") or None,
+                        suffix=str(t.get("suffix") or ""),
+                        prefix=str(t.get("prefix") or ""),
+                    )
+                    for t in (entry.get("tiles") or [])
+                    if t.get("ref")
+                ]
+                state.banner = str(entry.get("banner") or "")
+                state.banner_color = entry.get("banner_color") or None
+                state.subtitle = str(entry.get("subtitle") or "")
+                state.layout = str(entry.get("layout") or "auto")
+                state.prose = str(entry.get("prose") or "")
+                state.headline = str(entry.get("headline") or "")
+                state.reason = str(entry.get("reason") or "")
+                state.generated_at = str(entry.get("at") or "")
+                state.degraded = ""
+            for when, text in complog.recent_logs_for(key):
+                state.journal.add(when, text)
+        except Exception:
+            logger.debug("Hydration failed; starting cold", exc_info=True)
+        return state
+
     def _geometry(self) -> Geometry:
         board = self.board
         if board is None:
@@ -301,7 +340,10 @@ class GenerativeDashboardPlugin(PluginBase):
         geo = self._geometry()
         key = self._state_key()
         with self._lock:
-            state = self._states.setdefault(key, BoardState())
+            state = self._states.get(key)
+            if state is None:
+                state = self._hydrate(key)
+                self._states[key] = state
 
         watchlist = self._watchlist(config)
         if not watchlist:
@@ -555,6 +597,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 "thinking": outcome.thinking,
                 "tiles": [
                     {"ref": t.ref, "label": t.label, "color": t.color,
+                     "suffix": t.suffix, "prefix": t.prefix,
                      "value": current.get(t.ref, "")}
                     for t in outcome.tiles
                 ],

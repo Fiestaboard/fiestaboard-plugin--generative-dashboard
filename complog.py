@@ -9,6 +9,7 @@ compositions can be queried remotely through the app's /logs endpoint.
 
 import json
 import logging
+import os
 import pathlib
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,15 @@ KEEP_LINES = 300
 
 
 def _log_path() -> pathlib.Path:
-    """Beside the plugin: survives updates (untracked) and reboots."""
+    """Beside the plugin: survives updates (untracked) and reboots.
+
+    The env override exists for tests: registry reloads can leave several
+    copies of this module alive at once, and an environment variable is the
+    one binding they all share.
+    """
+    override = os.environ.get("GENERATIVE_DASHBOARD_COMPLOG")
+    if override:
+        return pathlib.Path(override)
     return pathlib.Path(__file__).resolve().parent / "composition_log.jsonl"
 
 
@@ -37,3 +46,37 @@ def record(entry: dict) -> None:
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except Exception:
         logger.debug("Composition log write failed", exc_info=True)
+
+
+def last_for(key: str) -> dict | None:
+    """The most recent entry for one board key, or None."""
+    try:
+        lines = _log_path().read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except Exception:
+            continue
+        if entry.get("key") == key:
+            return entry
+    return None
+
+
+def recent_logs_for(key: str, limit: int = 6) -> list[tuple[str, str]]:
+    """(time, log-line) pairs for *key*, oldest first, to reseed the journal."""
+    try:
+        lines = _log_path().read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+    out: list[tuple[str, str]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except Exception:
+            continue
+        if entry.get("key") == key and entry.get("log"):
+            when = str(entry.get("at") or "")
+            out.append((when[11:16] if len(when) >= 16 else when, str(entry["log"])))
+    return out[-limit:]

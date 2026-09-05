@@ -8,6 +8,7 @@ two-minute one.
 """
 
 from .catalog import default_label
+from .validation import _is_identifier_ref
 
 # Values that mean "no reading". The prompt tells the model to skip these;
 # the deterministic grid has no model, so it filters them itself.
@@ -43,7 +44,11 @@ def deterministic_tiles(
     return [
         Tile(label=labels.get(ref) or default_label(ref), value=values[ref])
         for ref in ranked
-        if ref in values and values[ref].strip().upper() not in _PLACEHOLDERS
+        if ref in values
+        and values[ref].strip().upper() not in _PLACEHOLDERS
+        # A currency pair's name or a ticker is not a stat, even with no
+        # model around to say so — it was the face of the de facto board.
+        and not (_is_identifier_ref(ref) and not any(c.isdigit() for c in values[ref]))
     ]
 
 

@@ -88,3 +88,14 @@ def test_the_fallback_grid_also_skips_placeholder_values():
         {"a.x": "Unknown", "b.y": "62", "c.z": "N/A"}, [],
     )
     assert [t.value for t in tiles] == ["62"]
+
+
+def test_the_fallback_grid_skips_identifier_values():
+    # BASE USD and RATE 1 EUR were the face of the de facto board: a
+    # currency pair's name is not a stat even when the model is not around
+    # to say so.
+    tiles = deterministic_tiles(
+        ["currency.base", "currency.rate", "wx.temp"], {},
+        {"currency.base": "USD", "currency.rate": "0.8604", "wx.temp": "62"}, [],
+    )
+    assert [t.value for t in tiles] == ["0.8604", "62"]

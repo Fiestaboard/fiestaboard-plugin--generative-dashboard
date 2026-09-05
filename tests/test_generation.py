@@ -294,3 +294,41 @@ def test_the_thinking_reaches_the_composition_log(plugin, tmp_path, monkeypatch)
                     plugin._config_generation)
     entry = json.loads((tmp_path / "c.jsonl").read_text().splitlines()[-1])
     assert entry["thinking"] == "evening; market story leads"
+
+
+def test_a_fresh_instance_resumes_its_last_composition(plugin, tmp_path, monkeypatch, manifest, config):
+    # Every update and restart wiped state, so the pollen-and-USD fallback
+    # grid became the board's weird de facto face. The last landed
+    # composition is in the log; a fresh instance should pick it back up.
+    complog = type(plugin)._run.__globals__["complog"]
+    monkeypatch.setattr(complog, "_log_path", lambda: tmp_path / "c.jsonl")
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with patch("requests.post", return_value=_reply(dict(GOOD_GRID, log="aqi spiked"))):
+        plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                    plugin._config_generation)
+
+    reborn = GenerativeDashboardPlugin(manifest)
+    reborn.config = config
+    monkeypatch.setattr(catalog, "read_values",
+                        lambda refs, board, exclude, **kw: dict(CURRENT))
+    monkeypatch.setattr(reborn, "_spawn", lambda *a, **k: None)
+    with reborn._bound_board(FLAGSHIP):
+        lines = reborn.fetch_data().formatted_lines
+    joined = " ".join(lines)
+    assert "168" in joined and "{red}" in joined  # the old composition, live values
+    assert "aqi spiked" in reborn._states["flagship"].journal.render()
+
+
+def test_hydration_survives_a_missing_or_garbage_log(manifest, config, monkeypatch):
+    complog = GenerativeDashboardPlugin._run.__globals__["complog"]
+    monkeypatch.setattr(complog, "_log_path",
+                        lambda: __import__("pathlib").Path("/nonexistent/x.jsonl"))
+    reborn = GenerativeDashboardPlugin(manifest)
+    reborn.config = config
+    monkeypatch.setattr(catalog, "read_values",
+                        lambda refs, board, exclude, **kw: dict(CURRENT))
+    monkeypatch.setattr(reborn, "_spawn", lambda *a, **k: None)
+    with reborn._bound_board(FLAGSHIP):
+        result = reborn.fetch_data()
+    assert result.available  # plain fallback, no crash

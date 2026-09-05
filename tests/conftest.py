@@ -3,6 +3,19 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolated_composition_log(tmp_path, monkeypatch):
+    """Every test gets an empty composition log.
+
+    Hydration means a shared real log leaks one test's composition into the
+    next test's 'cold' board. The env override reaches every copy of the
+    module, however many the registry reloads have left alive.
+    """
+    path = tmp_path / "isolated-complog.jsonl"
+    monkeypatch.setenv("GENERATIVE_DASHBOARD_COMPLOG", str(path))
+    return path
+
+
 @pytest.fixture
 def manifest():
     return {
