@@ -35,10 +35,13 @@ jobs:
       - name: Set up plugin directory structure
         run: |
           PLUGIN_ID=$(python -c "import json; print(json.load(open('manifest.json'))['id'])")
+          # -sfn: this repo commits the plugins/ shim for its container test
+          # loop, so the links may already exist (divergence from the org
+          # template, which creates them fresh).
           mkdir -p plugins
           touch plugins/__init__.py
-          ln -s .. "plugins/$PLUGIN_ID"
-          ln -s . "$PLUGIN_ID"
+          ln -sfn .. "plugins/$PLUGIN_ID"
+          ln -sfn . "$PLUGIN_ID"
 
       - name: Run tests
         env:
