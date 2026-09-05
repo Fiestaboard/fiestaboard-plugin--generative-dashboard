@@ -472,3 +472,11 @@ def test_the_thinking_rule_warns_about_json_hostile_characters():
 def test_prose_rules_teach_the_placeholder_syntax():
     system, _ = _prompt(build_prose_prompt)
     assert "{" in system and "substituted" in system.lower()
+
+
+def test_prose_rules_carry_the_generated_function_reference():
+    system, _ = _prompt(build_prose_prompt)
+    assert "{= " in system
+    # Names come straight from core's registry, so the list can never drift.
+    assert "PADLEFT" in system and "FIXED" in system and "COLOR" in system
+    assert "earn" in system.lower() or "sparingly" in system.lower()

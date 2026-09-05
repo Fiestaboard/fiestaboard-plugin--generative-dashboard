@@ -49,3 +49,10 @@ def test_truncate_keeps_marker_when_it_fits():
 
 def test_truncate_leaves_short_text_alone():
     assert truncate("AQI", 10) == "AQI"
+
+
+def test_numeric_color_codes_survive_sanitize():
+    # Core's COLOR() function emits {63}-style markers; they are one flap
+    # each, exactly like the named forms.
+    assert sanitize("{63}UP") == "{63}UP"
+    assert cell_width("{63}UP") == 3

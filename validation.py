@@ -17,6 +17,38 @@ from .layout import Geometry, Tile, fits
 # A run of digits with internal separators: 42, 94,120, 1.25
 _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
+# {= EXPRESSION } inside prose: core's full formula language, compiled and
+# test-run against real values before the board ever accepts it.
+_EXPR_RE = re.compile(r"\{=\s*(.+?)\s*\}")
+
+# Enough for creativity, low enough that a board never becomes a program.
+_MAX_EXPRESSIONS = 6
+
+
+def _expr_context(values: dict[str, str]) -> dict:
+    """Flat plugin.var values as the nested context core's evaluator wants."""
+    ctx: dict = {}
+    for ref, value in values.items():
+        plugin_id, _, name = ref.partition(".")
+        if plugin_id and name:
+            ctx.setdefault(plugin_id, {})[name] = value
+    return ctx
+
+
+def _evaluate_expressions(template: str, values: dict[str, str]) -> str:
+    """Replace every {= expr } with its live result.
+
+    Core's evaluator does the work, so our expression language IS the
+    template engine's — same functions, same semantics, never drifting.
+    """
+    try:
+        from src.templates.expressions import evaluate
+    except Exception:
+        return _EXPR_RE.sub("--", template)
+    ctx = _expr_context(values)
+    return _EXPR_RE.sub(lambda m: evaluate(m.group(1), ctx), template)
+
+
 # {plugin.var} or {plugin.var|filter} inside prose. The dot is mandatory,
 # which is what keeps these from ever colliding with {red}-style markers.
 _PLACEHOLDER_RE = re.compile(r"\{([a-z0-9_]+\.[a-z0-9_]+)(?:\|([a-z0-9_]+))?\}")
@@ -199,7 +231,7 @@ def render_prose(template: str, values: dict[str, str]) -> str:
         transform = _FILTERS.get(match.group(2) or "")
         return transform(value) if transform else value
 
-    return _PLACEHOLDER_RE.sub(_fill, template)
+    return _PLACEHOLDER_RE.sub(_fill, _evaluate_expressions(template, values))
 
 
 def _as_dict(payload: object) -> dict:
@@ -405,6 +437,30 @@ def validate_prose(
                 + ", ".join(sorted(_FILTERS))
             )
 
+    expressions = _EXPR_RE.findall(raw)
+    if len(expressions) > _MAX_EXPRESSIONS:
+        raise ValidationError(
+            f"{len(expressions)} expression blocks; at most {_MAX_EXPRESSIONS} "
+            "— a board is not a program"
+        )
+    if expressions:
+        try:
+            from src.templates.expressions import validate_expression, evaluate
+        except Exception as exc:
+            raise ValidationError("Expressions are unavailable here") from exc
+        ctx = _expr_context(current)
+        for body in expressions:
+            issues = validate_expression(body, known_sources={r.partition(".")[0] for r in current})
+            if issues:
+                detail = "; ".join(i.message for i in issues)
+                raise ValidationError(f"Expression {{= {body} }} does not compile: {detail}")
+            result = evaluate(body, ctx)
+            if result.startswith("#"):
+                raise ValidationError(
+                    f"Expression {{= {body} }} evaluates to {result} on the "
+                    "current values"
+                )
+
     rendered = sanitize(render_prose(raw, current)).strip()
     # Letters only: a period before a digit is a decimal point, and adding a
     # space there once split 335.31 into fragments this very validator then
@@ -414,10 +470,14 @@ def validate_prose(
         raise ValidationError("Text was empty after removing unrenderable characters")
     # Store the template when placeholders exist so values stay live on the
     # board; plain text stores its cleaned form.
-    text = " ".join(str(raw).split()) if _PLACEHOLDER_RE.search(raw) else rendered
+    template_like = _PLACEHOLDER_RE.search(raw) or _EXPR_RE.search(raw)
+    text = " ".join(str(raw).split()) if template_like else rendered
 
+    # Digits an expression computes are live math on real inputs; only the
+    # model's own literal digits face the truth check.
+    checkable = sanitize(render_prose(_EXPR_RE.sub(" ", raw), current))
     allowed = allowed_numbers(current, previous)
-    for token in extract_numbers(rendered):
+    for token in extract_numbers(checkable):
         if token not in allowed:
             raise ValidationError(
                 f"Text contains the number {token}, which was not supplied"

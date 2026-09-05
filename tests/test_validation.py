@@ -640,3 +640,57 @@ def test_an_unknown_filter_is_rejected_by_name():
         )
     assert "round2" in str(excinfo.value)
     assert "int" in str(excinfo.value)  # the retry learns what exists
+
+
+def test_a_full_expression_is_compiled_and_test_run_at_validation():
+    from plugins.generative_dashboard.validation import render_prose
+
+    result = validate_prose(
+        {"text": 'GOOG {= IF(stocks.change > 0, COLOR("green"), COLOR("red")) } TODAY.'},
+        geo=GEO, current={"stocks.change": "-1.11"}, previous={},
+    )
+    assert "{=" in result.text  # stored as a template
+    rendered = render_prose(result.text, {"stocks.change": "-1.11"})
+    assert "{63}" in rendered  # red, live
+    rendered_up = render_prose(result.text, {"stocks.change": "2.0"})
+    assert "{66}" in rendered_up  # flips green when the value flips
+
+
+def test_expression_computed_digits_are_exempt_from_the_truth_check():
+    # FIXED() computes from live real inputs at render time — the opposite
+    # of a model-typed frozen guess. A literal invented digit still fails.
+    result = validate_prose(
+        {"text": "GOOG NEAR {= FIXED(stocks.price, 0) }."},
+        geo=GEO, current={"stocks.price": "335.31"}, previous={},
+    )
+    assert result.text
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": "GOOG NEAR {= FIXED(stocks.price, 0) }, UP 999."},
+            geo=GEO, current={"stocks.price": "335.31"}, previous={},
+        )
+
+
+def test_an_unknown_function_is_rejected_with_the_compilers_message():
+    with pytest.raises(ValidationError) as excinfo:
+        validate_prose(
+            {"text": "GOOG {= NOPE(stocks.price) }."},
+            geo=GEO, current={"stocks.price": "335.31"}, previous={},
+        )
+    assert "NOPE" in str(excinfo.value)
+
+
+def test_an_expression_that_errors_on_real_values_is_rejected():
+    with pytest.raises(ValidationError) as excinfo:
+        validate_prose(
+            {"text": "X {= 1/0 }."},
+            geo=GEO, current={"a.b": "1"}, previous={},
+        )
+    assert "#" in str(excinfo.value)
+
+
+def test_expression_overuse_is_capped():
+    blocks = " ".join("{= 1+1 }" for _ in range(7))
+    with pytest.raises(ValidationError) as excinfo:
+        validate_prose({"text": blocks}, geo=GEO, current={"a.b": "2"}, previous={})
+    assert "expression" in str(excinfo.value).lower()

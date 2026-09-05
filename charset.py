@@ -18,7 +18,7 @@ ACCENT_COLORS = ("red", "orange", "yellow", "green", "blue", "violet")
 
 # Single-brace markers, matching src/text_to_board.py's COLOR_MARKER_PATTERN.
 COLOR_MARKER_RE = re.compile(
-    r"\{(?:red|orange|yellow|green|blue|violet|purple|white|black)\}",
+    r"\{(?:red|orange|yellow|green|blue|violet|purple|white|black|6[3-9]|7[01])\}",
     re.IGNORECASE,
 )
 

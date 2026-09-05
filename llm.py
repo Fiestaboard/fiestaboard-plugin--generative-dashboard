@@ -114,6 +114,32 @@ class DashboardLLM:
         return parsed
 
 
+_EXPRESSION_REFERENCE_CACHE: str | None = None
+
+
+def _expression_reference() -> str:
+    """The formula functions, straight from core's registry.
+
+    Generated, not transcribed, so the reference the model reads can never
+    drift from what the evaluator actually accepts.
+    """
+    global _EXPRESSION_REFERENCE_CACHE
+    if _EXPRESSION_REFERENCE_CACHE is None:
+        try:
+            from src.templates.expressions import function_signatures
+
+            lines = [
+                f"  {info['signature']}"
+                for _, info in sorted(function_signatures().items())
+            ]
+            _EXPRESSION_REFERENCE_CACHE = (
+                "AVAILABLE FORMULA FUNCTIONS:\n" + "\n".join(lines) + "\n\n"
+            )
+        except Exception:
+            _EXPRESSION_REFERENCE_CACHE = ""
+    return _EXPRESSION_REFERENCE_CACHE
+
+
 def describe_variables(
     refs: list[str],
     labels: dict[str, str],
@@ -449,11 +475,21 @@ def _prose_rules(geo: Geometry) -> str:
         "placeholder instead of the number: GOOG IS {stocks.price} TONIGHT. "
         "Placeholders are substituted live on every render, so your sentence "
         "stays true for its whole life on the wall. Literal numbers are for "
-        "PAST values only, like FROM 31. One filter exists: {ref|int} drops "
-        "the decimals of a live value — {stocks.price|int} shows 335 when the "
-        "price is 335.31. That is the entire expression language; anything "
-        "fancier will be rejected, so do not invent syntax.\n\n"
-        "CRITICAL: use the supplied values exactly as written. Do not compute, "
+        "PAST values only, like FROM 31. {ref|int} drops a live value's "
+        "decimals.\n\n"
+        "For anything fancier, write a formula block: {= EXPRESSION }. It is "
+        "compiled and test-run against the real values before the board "
+        "accepts it — any error comes back to you by name, so use exactly "
+        "the functions listed below and nothing else. Formulas re-evaluate "
+        "live on every render. Examples:\n"
+        '{= IF(stocks.change > 0, COLOR("green"), COLOR("red")) } — a status '
+        "tile that flips with the sign.\n"
+        "{= FIXED(stocks.price, 0) } — a live value rounded for display.\n\n"
+        "A formula must earn its place: plain {ref} placeholders first, "
+        "formulas only where they genuinely add something, and never more "
+        "than a few per board.\n\n"
+        + _expression_reference()
+        + "CRITICAL: use the supplied values exactly as written. Do not compute, "
         "do not round, do not abbreviate, and do not invent any number. If a "
         "value reads 94,120 then write 94,120. Never state a percentage or a "
         "difference that was not given to you.\n\n"
