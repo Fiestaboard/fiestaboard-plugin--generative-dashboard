@@ -27,6 +27,21 @@ form it writes `{plugin.var}` placeholders that stay live the same way.
 Formulas (`{= IF(air.aqi > 100, "red", "green") }`) are compiled and
 test-run against real values before the board accepts them.
 
+### What it composes
+
+Every board below is real output, captured live and rendered through
+core's board preview:
+
+| | |
+|---|---|
+| ![A market ledger board with a framed title and red status lights](./docs/board-market.png) | ![A prose alert: NWS beach hazards statement as a framed orange headline over a sentence](./docs/board-prose.png) |
+| *Auto mode chose a **ledger grid**: GOOG's slide framed in the title, red lights on the moving numbers.* | *Auto mode chose **prose**: one story worth a sentence, headline framed in warning orange.* |
+
+![The same plugin on a 3x15 Note: NIGHT WALK with two status lights](./docs/board-note.png)
+
+*The same plugin on a 15×3 Note — it composes for whatever board size
+renders it.*
+
 ## Template Variables
 
 ### Display

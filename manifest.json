@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.26.2",
+  "version": "1.26.3",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -373,6 +373,18 @@
       "src": "docs/board-display.png",
       "alt": "A night-walk weather board composed by the AI: framed title, live stats, and green status lights with one yellow AQI",
       "primary": true
+    },
+    {
+      "src": "docs/board-market.png",
+      "alt": "A market ledger board: MARKET WATCH title framed in blue, GOOG price and change with red status lights"
+    },
+    {
+      "src": "docs/board-prose.png",
+      "alt": "A prose board: BEACH HAZARDS headline framed in orange over a plain-language weather sentence"
+    },
+    {
+      "src": "docs/board-note.png",
+      "alt": "A 15x3 Note board: NIGHT WALK with temperature and AQI status lights"
     }
   ]
 }
