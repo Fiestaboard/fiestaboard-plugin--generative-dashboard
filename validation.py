@@ -17,6 +17,19 @@ from .layout import Geometry, Tile, fits
 # A run of digits with internal separators: 42, 94,120, 1.25
 _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
+# {plugin.var} or {plugin.var|filter} inside prose. The dot is mandatory,
+# which is what keeps these from ever colliding with {red}-style markers.
+_PLACEHOLDER_RE = re.compile(r"\{([a-z0-9_]+\.[a-z0-9_]+)(?:\|([a-z0-9_]+))?\}")
+
+# The whole expression language the model gets. Deliberately tiny: every
+# filter must preserve truth, and each one is validated by name so a typo is
+# rejected with an error the retry can fix. Grows one safe verb at a time.
+_FILTERS = {
+    # Truncation only ever omits precision — the same honesty rule the
+    # number check applies to literals.
+    "int": lambda v: v.split(".")[0] if v and v[0].isdigit() and "." in v else v,
+}
+
 # Longest unit worth appending. " MPH" is 4; anything longer is prose.
 _MAX_SUFFIX = 5
 
@@ -171,6 +184,22 @@ def apply_suffix(value: str, suffix: str) -> str:
     if not suffix or not value or value[-1] not in "0123456789":
         return value
     return value + suffix
+
+
+def render_prose(template: str, values: dict[str, str]) -> str:
+    """Substitute live values into a prose template.
+
+    This is what keeps a sentence true for fifteen minutes: the model wrote
+    {stocks.price}, not a number, so every render shows the current price —
+    the same never-type-a-value trick the grid has always used. A value that
+    has vanished shows as -- rather than a stale figure.
+    """
+    def _fill(match: "re.Match[str]") -> str:
+        value = str(values.get(match.group(1), "--"))
+        transform = _FILTERS.get(match.group(2) or "")
+        return transform(value) if transform else value
+
+    return _PLACEHOLDER_RE.sub(_fill, template)
 
 
 def _as_dict(payload: object) -> dict:
@@ -362,18 +391,33 @@ def validate_prose(
     if not isinstance(raw, str) or not raw.strip():
         raise ValidationError("Response had no 'text'")
 
-    text = sanitize(raw).strip()
-    # Sentences the model runs together ("-1.11%.SUNNY") wrap as one long
-    # word and shred the layout; restore the space it owed us.
-    # Letters only: a period before a digit is a decimal point, and adding
-    # a space there once split 335.31 into fragments this very validator
-    # then rejected.
-    text = re.sub(r"([.!?])(?=[A-Z])", r"\1 ", text)
-    if not text:
+    # Placeholders are verified against the stats — refs and filters both —
+    # then protected from the sanitizer (which strips unknown braces) by
+    # validating the *rendered* form while storing the template.
+    for ref, flt in _PLACEHOLDER_RE.findall(raw):
+        if ref not in current:
+            raise ValidationError(
+                f"Placeholder {{{ref}}} names a stat that was not supplied"
+            )
+        if flt and flt not in _FILTERS:
+            raise ValidationError(
+                f"Unknown filter |{flt}; the only filters are: "
+                + ", ".join(sorted(_FILTERS))
+            )
+
+    rendered = sanitize(render_prose(raw, current)).strip()
+    # Letters only: a period before a digit is a decimal point, and adding a
+    # space there once split 335.31 into fragments this very validator then
+    # rejected.
+    rendered = re.sub(r"([.!?])(?=[A-Z])", r"\1 ", rendered)
+    if not rendered:
         raise ValidationError("Text was empty after removing unrenderable characters")
+    # Store the template when placeholders exist so values stay live on the
+    # board; plain text stores its cleaned form.
+    text = " ".join(str(raw).split()) if _PLACEHOLDER_RE.search(raw) else rendered
 
     allowed = allowed_numbers(current, previous)
-    for token in extract_numbers(text):
+    for token in extract_numbers(rendered):
         if token not in allowed:
             raise ValidationError(
                 f"Text contains the number {token}, which was not supplied"
@@ -384,8 +428,9 @@ def validate_prose(
     headline = sanitize(str(data.get("headline") or ""))
     prose_hue = str(data.get("banner_color") or "").lower()
     rows = geo.rows - (1 if (headline and prose_hue in ACCENT_COLORS) else 0)
-    if not fits(text, rows, geo.cols):
+    if not fits(rendered, rows, geo.cols):
         raise ValidationError(f"Text does not fit {rows} rows of {geo.cols}")
+
 
     return ProseResult(
         text=text,

@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -65,9 +65,9 @@
       },
       "refresh_seconds": {
         "type": "integer",
-        "title": "Minimum Time Between AI Updates (seconds)",
-        "description": "How often the AI may be asked to redraw the board, at most. It is only asked when a value has actually changed, so a quiet board costs nothing \u2014 this is the ceiling on how often it can happen. 300 is five minutes; raise it to 1800 for a calmer, cheaper board.",
-        "default": 300,
+        "title": "Minimum Time Between Re-Layouts (seconds)",
+        "description": "How often the AI may re-lay the board out, at most \u2014 and only when something actually changed. The values on the board stay live every render regardless: the AI places variables, not numbers, in both grid and sentence form. 900 is four re-layouts an hour at busiest.",
+        "default": 900,
         "minimum": 120
       },
       "default_threshold_pct": {

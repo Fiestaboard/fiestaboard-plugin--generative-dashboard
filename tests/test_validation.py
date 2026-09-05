@@ -581,3 +581,62 @@ def test_a_framed_headline_costs_the_prose_a_row():
     # Without the frame, the same text is fine.
     result = validate_prose({"text": long_text}, geo=GEO, current={}, previous={})
     assert result.text
+
+
+def test_prose_placeholders_are_verified_and_kept_as_a_template():
+    from plugins.generative_dashboard.validation import render_prose
+
+    result = validate_prose(
+        {"text": "GOOG IS {stocks.price} TONIGHT."},
+        geo=GEO, current={"stocks.price": "$335.31"}, previous={},
+    )
+    assert "{stocks.price}" in result.text  # stored as a template
+    assert render_prose(result.text, {"stocks.price": "$339.99"}) == "GOOG IS $339.99 TONIGHT."
+
+
+def test_a_placeholder_for_an_unknown_variable_is_rejected():
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": "GOOG IS {stocks.nope}."},
+            geo=GEO, current={"stocks.price": "$335.31"}, previous={},
+        )
+
+
+def test_placeholder_prose_still_passes_the_number_truth_check():
+    # The rendered form is what gets checked: a literal invented number next
+    # to a placeholder still fails.
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": "GOOG IS {stocks.price}, UP 999 TODAY."},
+            geo=GEO, current={"stocks.price": "$335.31"}, previous={},
+        )
+
+
+def test_render_prose_marks_a_vanished_value_rather_than_lying():
+    from plugins.generative_dashboard.validation import render_prose
+
+    assert render_prose("TEMP IS {wx.temp}F.", {}) == "TEMP IS --F."
+
+
+def test_placeholders_do_not_collide_with_color_markers():
+    from plugins.generative_dashboard.validation import render_prose
+
+    # No dot means it is not a placeholder; braces are left for sanitize.
+    assert render_prose("{red} ALERT {wx.temp}", {"wx.temp": "62"}) == "{red} ALERT 62"
+
+
+def test_the_int_filter_truncates_a_decimal_live():
+    from plugins.generative_dashboard.validation import render_prose
+
+    assert render_prose("GOOG AT {st.p|int}.", {"st.p": "335.31"}) == "GOOG AT 335."
+    assert render_prose("SKY {wx.c|int}.", {"wx.c": "CLEAR"}) == "SKY CLEAR."
+
+
+def test_an_unknown_filter_is_rejected_by_name():
+    with pytest.raises(ValidationError) as excinfo:
+        validate_prose(
+            {"text": "GOOG AT {st.p|round2}."},
+            geo=GEO, current={"st.p": "335.31"}, previous={},
+        )
+    assert "round2" in str(excinfo.value)
+    assert "int" in str(excinfo.value)  # the retry learns what exists

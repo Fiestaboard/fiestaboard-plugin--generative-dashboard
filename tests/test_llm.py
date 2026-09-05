@@ -467,3 +467,8 @@ def test_literal_newlines_inside_json_strings_are_tolerated():
 def test_the_thinking_rule_warns_about_json_hostile_characters():
     system, _ = _prompt(build_grid_prompt)
     assert "quotation" in system.lower() or "quote" in system.lower()
+
+
+def test_prose_rules_teach_the_placeholder_syntax():
+    system, _ = _prompt(build_prose_prompt)
+    assert "{" in system and "substituted" in system.lower()

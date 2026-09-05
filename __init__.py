@@ -55,6 +55,7 @@ from .validation import (
     ValidationError,
     apply_prefix,
     apply_suffix,
+    render_prose,
     validate_auto,
     validate_grid,
     validate_prose,
@@ -275,11 +276,12 @@ class GenerativeDashboardPlugin(PluginBase):
         """What this composition looks like on its board, for the log."""
         try:
             if outcome.prose:
+                live_text = render_prose(outcome.prose, values)
                 if outcome.headline and outcome.banner_color:
                     title = render_banner(outcome.headline, outcome.banner_color,
                                           geo.cols, weight=2)
-                    return ([title] + wrap_center(outcome.prose, geo.rows - 1, geo.cols))[: geo.rows]
-                return wrap_center(outcome.prose, geo.rows, geo.cols)
+                    return ([title] + wrap_center(live_text, geo.rows - 1, geo.cols))[: geo.rows]
+                return wrap_center(live_text, geo.rows, geo.cols)
             tiles = [
                 Tile(label=t.label,
                      value=apply_prefix(apply_suffix(values.get(t.ref, ""), t.suffix), t.prefix),
@@ -445,11 +447,12 @@ class GenerativeDashboardPlugin(PluginBase):
         if config.get("output_mode", "grid") != "grid" and prose and not stale:
             with self._lock:
                 headline, prose_hue = state.headline, state.banner_color
+            live_text = render_prose(prose, values)
             if headline and prose_hue and use_color:
                 title = render_banner(headline, prose_hue, geo.cols, weight=2)
-                body = wrap_center(prose, geo.rows - 1, geo.cols)
+                body = wrap_center(live_text, geo.rows - 1, geo.cols)
                 return ([title] + body)[: geo.rows], degraded, 0
-            return wrap_center(prose, geo.rows, geo.cols), degraded, 0
+            return wrap_center(live_text, geo.rows, geo.cols), degraded, 0
 
         if specs:
             tiles = [

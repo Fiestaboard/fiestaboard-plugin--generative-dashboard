@@ -467,3 +467,16 @@ def test_auto_mode_displays_whatever_form_the_model_chose(plugin):
     state.prose = ""
     state.tiles = [TileSpec("air.aqi", "AQI", None)]
     assert any("AQI" in l for l in _fetch(plugin).formatted_lines)
+
+
+def test_prose_values_stay_live_between_compositions(plugin, monkeypatch):
+    # The model returns a template; the numbers on the wall tick every
+    # render without the sentence re-laying itself.
+    plugin.config = dict(plugin.config, output_mode="prose")
+    _fetch(plugin)
+    plugin._states["flagship"].prose = "AQI IS {air.aqi} RIGHT NOW."
+    assert any("68" in l for l in _fetch(plugin).formatted_lines)
+    _values(monkeypatch, {"air.aqi": "71", "wx.temp": "61F"})
+    lines = _fetch(plugin).formatted_lines
+    assert any("71" in l for l in lines)
+    assert not any("{air.aqi}" in l for l in lines)
