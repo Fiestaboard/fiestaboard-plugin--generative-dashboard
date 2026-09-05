@@ -363,6 +363,16 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
                 return lines, degraded, placed_count(tiles, geo, banner, subtitle, layout)
 
+        if specs:
+            # A composition existed but every one of its refs lost its value
+            # this cycle — the exact signature of the fallback flash seen
+            # live on 2026-09-04. Log the refs so the next occurrence names
+            # the plugin that went dark.
+            logger.warning(
+                "Composition present but valueless this cycle; falling back. "
+                "Missing refs: %s",
+                [spec.ref for spec in specs if spec.ref not in values],
+            )
         tiles = fallback.deterministic_tiles(
             watchlist, self._labels(config), values, self._pinned(config)
         )

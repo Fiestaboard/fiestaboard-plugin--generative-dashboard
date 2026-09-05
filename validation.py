@@ -221,6 +221,11 @@ def validate_grid(
                 label_text = ""
         suffix = clean_suffix(entry.get("suffix"))
         prefix = clean_suffix(entry.get("prefix"))[:2]
+        if "$" in suffix:
+            # "335.31$" appeared on a live board. Currency signs lead a
+            # number; the model's slot choice does not change money notation.
+            prefix = prefix or "$"
+            suffix = suffix.replace("$", "")
         if not suffix and not prefix:
             # The model forgot the unit; the manifest often knows it. A board
             # that shows 62F on Tuesday and 62 on Wednesday looks generated —
@@ -332,6 +337,9 @@ def validate_prose(
         raise ValidationError("Response had no 'text'")
 
     text = sanitize(raw).strip()
+    # Sentences the model runs together ("-1.11%.SUNNY") wrap as one long
+    # word and shred the layout; restore the space it owed us.
+    text = re.sub(r"([.!?])(?=[A-Z0-9])", r"\1 ", text)
     if not text:
         raise ValidationError("Text was empty after removing unrenderable characters")
 

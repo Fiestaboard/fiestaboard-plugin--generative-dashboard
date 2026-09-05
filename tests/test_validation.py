@@ -430,3 +430,22 @@ def test_the_model_may_choose_the_list_layout():
 
 def test_an_unknown_layout_falls_back_to_auto():
     assert _validate(_grid(layout="mosaic")).layout == "auto"
+
+
+def test_a_currency_symbol_in_the_suffix_slot_becomes_a_prefix():
+    # Live board showed "335.31$" — the model put the currency sign in the
+    # suffix slot. Money notation is not a style choice.
+    payload = {"tiles": [{"label": "GOOG", "variable": "st.p", "suffix": "$"}]}
+    result = _validate(payload, watchlist=["st.p"], values={"st.p": "335.31"})
+    assert result.tiles[0].value == "$335.31"
+
+
+def test_prose_gets_spaces_after_sentence_punctuation():
+    # "-1.11%.SUNNY" wrapped as one fifteen-character word and shredded the
+    # centering. The model omits the space often enough to fix it here.
+    result = validate_prose(
+        {"text": "AQI IS 168.KEEP WINDOWS SHUT.NIGHT SOON."},
+        geo=GEO, current={"a.x": "168"}, previous={},
+    )
+    assert ".K" not in result.text and ".N" not in result.text
+    assert "168. KEEP" in result.text

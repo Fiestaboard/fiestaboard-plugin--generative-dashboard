@@ -424,3 +424,10 @@ def test_the_rotation_context_tells_the_model_what_is_already_covered():
 def test_no_rotation_means_no_rotation_block():
     _, user = _prompt(build_grid_prompt)
     assert "ROTATION" not in user.upper()
+
+
+def test_prose_is_told_to_speak_direction_not_signs():
+    # "A DROP OF -1.11%" is a double negative; DOWN 1.11% is how a person
+    # says it.
+    system, _ = _prompt(build_prose_prompt)
+    assert "minus" in system.lower() or "sign" in system.lower()
