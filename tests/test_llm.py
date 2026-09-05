@@ -395,3 +395,21 @@ def test_no_audience_means_no_empty_brief_block():
 def test_prose_gets_the_same_audience_brief():
     system, _ = _prompt(build_prose_prompt, audience="We keep bees.")
     assert "We keep bees." in system
+
+
+def test_stats_are_presented_under_plugin_section_headers():
+    groups = [{"plugin": "Weather", "about": "Local conditions",
+               "vars": [("", ["wx.temp"]), ("Wind", ["wx.wind"])]}]
+    _, user = _prompt(
+        build_grid_prompt, groups=groups,
+        current={"wx.temp": "62", "wx.wind": "7.2"}, refs=["wx.temp", "wx.wind"],
+    )
+    assert "== Weather" in user and "Local conditions" in user
+    assert "[Wind]" in user
+    assert user.index("== Weather") < user.index("wx.temp")
+    assert user.index("[Wind]") < user.index("wx.wind")
+
+
+def test_without_groups_the_flat_list_still_works():
+    _, user = _prompt(build_grid_prompt)
+    assert "a.x" in user and "==" not in user.split("AVAILABLE STATS")[1].split("CURRENTLY")[0]

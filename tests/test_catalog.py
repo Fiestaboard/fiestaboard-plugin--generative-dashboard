@@ -559,3 +559,55 @@ def test_variable_descriptions_skips_refs_with_no_description(fake):
     from plugins.generative_dashboard.catalog import variable_descriptions
 
     assert variable_descriptions(["weather.wind", "gone.x"]) == {}
+
+
+def test_prompt_groups_organize_refs_by_plugin_with_names_and_purpose(fake):
+    """The model sees 'Air Quality & Fog', not the cryptic ref prefix.
+
+    Manifest-only, like everything on the generation path.
+    """
+
+    class Grouped(FakeRegistry):
+        def get_manifest(self, plugin_id):
+            m = super().get_manifest(plugin_id)
+            if m is None:
+                return None
+            m.description = {"air_fog": "Air quality and fog conditions"}.get(plugin_id, "")
+            groups = {"pollen": SimpleNamespace(label="Grass Pollen")}
+            m.variables.groups = groups if plugin_id == "air_fog" else {}
+            metadata = {"grass_pollen": "pollen"}
+
+            def get_variable_metadata(name, _m=metadata):
+                return SimpleNamespace(
+                    description="", type="string", max_length=6,
+                    group=_m.get(name, ""), example="",
+                )
+
+            m.variables.get_variable_metadata = get_variable_metadata
+            return m
+
+    fake(Grouped(
+        installed={"air_fog": {"aqi": {}, "grass_pollen": {}}},
+        names={"air_fog": "Air Quality & Fog"},
+    ))
+    from plugins.generative_dashboard.catalog import prompt_groups
+
+    sections = prompt_groups(["air_fog.aqi", "air_fog.grass_pollen"])
+    assert sections[0]["plugin"] == "Air Quality & Fog"
+    assert sections[0]["about"] == "Air quality and fog conditions"
+    titles = {sub for sub, _ in sections[0]["vars"]}
+    assert "Grass Pollen" in titles
+    flat = [r for _, refs in sections[0]["vars"] for r in refs]
+    assert set(flat) == {"air_fog.aqi", "air_fog.grass_pollen"}
+
+
+def test_prompt_groups_never_touch_the_template_context(monkeypatch):
+    class Exploding(FakeRegistry):
+        def get_all_variables_with_metadata(self):
+            raise AssertionError("prompt_groups must stay manifest-only")
+
+    registry = Exploding(installed={"wx": {"t": {}}}, names={"wx": "Weather"})
+    monkeypatch.setattr(catalog, "_registry", lambda: registry)
+    from plugins.generative_dashboard.catalog import prompt_groups
+
+    assert prompt_groups(["wx.t"])[0]["plugin"] == "Weather"

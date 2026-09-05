@@ -61,6 +61,22 @@ DESC = {
     "transit.delay": "Line delay in minutes",
 }
 NOTES = {"air.aqi": "over 100 is unhealthy, over 150 keep the windows shut"}
+GROUPS = [
+    {"plugin": "Weather", "about": "Current conditions", "vars": [
+        ("Temperature", ["weather.temperature", "weather.feels_like"]),
+        ("Conditions", ["weather.humidity", "weather.wind_speed",
+                        "weather.visibility", "weather.sunset", "weather.uv_index"]),
+    ]},
+    {"plugin": "Air Quality", "about": "AQI and particulates", "vars": [
+        ("", ["air.aqi", "air.pm25"]),
+    ]},
+    {"plugin": "Stock Prices", "about": "Tracked holdings", "vars": [
+        ("", ["stocks.symbol", "stocks.price", "stocks.change_pct"]),
+    ]},
+    {"plugin": "Transit", "about": "Trains and delays", "vars": [
+        ("", ["transit.next_train", "transit.delay"]),
+    ]},
+]
 AUDIENCE = (
     "Two adults in San Francisco. One surfs mornings; one commutes downtown "
     "at 8. They hold GOOG and keep windows open unless the air is bad."
@@ -222,6 +238,13 @@ def run(endpoint, model, runs):
                 current=scenario["current"], previous=scenario["previous"],
                 previous_board=[], extra_instructions="",
                 now=scenario["when"], descriptions=DESC, audience=AUDIENCE,
+                groups=[
+                    {**sec, "vars": [
+                        (label, [r for r in refs if r in scenario["current"]])
+                        for label, refs in sec["vars"]
+                    ]}
+                    for sec in GROUPS
+                ],
             )
             try:
                 if scenario["mode"] == "prose":

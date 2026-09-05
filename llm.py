@@ -175,6 +175,7 @@ def _context_block(
     journal: str = "",
     descriptions: dict[str, str] | None = None,
     use_color: bool = True,
+    groups: list[dict] | None = None,
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
     when = describe_now(now) if now is not None else ""
@@ -182,12 +183,34 @@ def _context_block(
     # With color on, every column may lose a cell to the status dot, so the
     # advertised label room assumes it — promising 4 and delivering 3 is how
     # CHANGE became CHA on a live board.
-    described = describe_variables(
-        refs, labels, notes, current, previous,
-        label_budget=column_inner(geo) - (1 if use_color else 0),
-        wide_budget=geo.cols if geo.tile_columns > 1 else None,
-        descriptions=descriptions,
-    )
+    def lines_for(subset: list[str]) -> str:
+        return describe_variables(
+            subset, labels, notes, current, previous,
+            label_budget=column_inner(geo) - (1 if use_color else 0),
+            wide_budget=geo.cols if geo.tile_columns > 1 else None,
+            descriptions=descriptions,
+        )
+
+    if groups:
+        parts: list[str] = []
+        for section in groups:
+            header = f"== {section['plugin']}"
+            if section.get("about"):
+                header += f": {section['about']}"
+            header += " =="
+            body: list[str] = []
+            for label, subset in section["vars"]:
+                rendered = lines_for(subset)
+                if not rendered:
+                    continue
+                if label:
+                    body.append(f"[{label}]")
+                body.append(rendered)
+            if body:
+                parts.append(header + "\n" + "\n".join(body))
+        described = "\n\n".join(parts)
+    else:
+        described = lines_for(list(refs))
     return (
         (f"RIGHT NOW: {when}.\n\n" if when else "")
         + (f"EARLIER TODAY:\n{journal}\n\n" if journal else "")
@@ -216,6 +239,7 @@ def build_grid_prompt(
     journal: str = "",
     descriptions: dict[str, str] | None = None,
     audience: str = "",
+    groups: list[dict] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
@@ -339,7 +363,7 @@ def build_grid_prompt(
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
-            descriptions, use_color,
+            descriptions, use_color, groups,
         ),
     )
 
@@ -358,6 +382,7 @@ def build_prose_prompt(
     journal: str = "",
     descriptions: dict[str, str] | None = None,
     audience: str = "",
+    groups: list[dict] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
@@ -404,6 +429,6 @@ def build_prose_prompt(
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
-            descriptions,
+            descriptions, True, groups,
         ),
     )

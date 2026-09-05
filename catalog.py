@@ -231,6 +231,61 @@ def eligible_refs(exclude_plugin_id: str, max_value_width: int) -> list[str]:
     return refs
 
 
+def prompt_groups(refs: "Sequence[str]") -> list[dict]:
+    """Refs organized the way their plugin authors organized them.
+
+    The model should see 'Air Quality & Fog', its one-line purpose, and the
+    manifest's own variable groups ('Grass Pollen'), not a flat wall of
+    cryptic ref prefixes — a reader cannot infer what muni.is_delayed means
+    as fast as a section header can say it. Manifest-only, like everything on
+    the generation path.
+
+    Returns ``[{"plugin", "about", "vars": [(group_label, [refs])]}]`` with
+    ungrouped refs first under an empty label, then groups in manifest order.
+    """
+    registry = _registry()
+    by_plugin: dict[str, list[str]] = defaultdict(list)
+    for ref in refs:
+        plugin_id, _, name = ref.partition(".")
+        if plugin_id and name:
+            by_plugin[plugin_id].append(ref)
+
+    sections: list[dict] = []
+    for plugin_id in sorted(by_plugin):
+        try:
+            manifest = registry.get_manifest(plugin_id)
+        except Exception:
+            manifest = None
+        variables = getattr(manifest, "variables", None)
+        group_labels = {
+            gid: getattr(group, "label", str(gid))
+            for gid, group in (getattr(variables, "groups", None) or {}).items()
+        }
+
+        grouped: dict[str, list[str]] = defaultdict(list)
+        for ref in by_plugin[plugin_id]:
+            gid = ""
+            if variables is not None:
+                meta = variables.get_variable_metadata(ref.partition(".")[2])
+                gid = str(getattr(meta, "group", "") or "")
+            grouped[group_labels.get(gid, "") if gid else ""].append(ref)
+
+        ordered: list[tuple[str, list[str]]] = []
+        if grouped.get(""):
+            ordered.append(("", grouped[""]))
+        for gid in group_labels:
+            label = group_labels[gid]
+            if grouped.get(label):
+                ordered.append((label, grouped[label]))
+
+        sections.append({
+            "plugin": getattr(manifest, "name", None) or plugin_id,
+            "about": str(getattr(manifest, "description", "") or "")[:80],
+            "vars": ordered or [("", by_plugin[plugin_id])],
+        })
+    return sections
+
+
 def variable_descriptions(refs: "Sequence[str]") -> dict[str, str]:
     """Manifest descriptions for *refs* — what each number means.
 
