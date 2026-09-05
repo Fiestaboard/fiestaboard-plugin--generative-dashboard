@@ -112,7 +112,7 @@ def test_a_material_change_starts_a_generation(plugin, monkeypatch):
     _fetch(plugin)
     state = plugin._states["flagship"]
     state.tiles = [TileSpec("air.aqi", "AQI", None)]
-    state.last_generated = 0.0
+    state.last_generated = None
     _values(monkeypatch, {"air.aqi": "168", "wx.temp": "61F"})
     calls = _spy_spawn(plugin, monkeypatch)
     _fetch(plugin)
@@ -284,7 +284,7 @@ def test_concurrent_fetches_do_not_lose_the_previous_snapshot(plugin, monkeypatc
     _fetch(plugin)
     state = plugin._states["flagship"]
     state.tiles = [TileSpec("air.aqi", "AQI", None)]
-    state.last_generated = 0.0
+    state.last_generated = None
     captured = []
     monkeypatch.setattr(
         plugin, "_spawn",
