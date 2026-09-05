@@ -4,6 +4,32 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def quiet_registry(monkeypatch):
+    """A minimal registry stands in unless a test installs its own.
+
+    In the dev container the real registry happens to initialise; on CI
+    there is no installed-plugin data to initialise from. Tests that care
+    about registry behaviour monkeypatch their own fakes, which land after
+    this one.
+    """
+    from types import SimpleNamespace
+
+    from plugins.generative_dashboard import catalog
+
+    fake = SimpleNamespace(
+        enabled_plugins={},
+        plugins={},
+        get_manifest=lambda pid: None,
+        get_all_variables_with_metadata=lambda: {},
+        fetch_plugin_data=lambda pid, board=None: SimpleNamespace(
+            available=False, data=None
+        ),
+    )
+    monkeypatch.setattr(catalog, "_registry", lambda: fake)
+    return fake
+
+
+@pytest.fixture(autouse=True)
 def isolated_composition_log(tmp_path, monkeypatch):
     """Every test gets an empty composition log.
 

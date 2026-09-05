@@ -387,14 +387,25 @@ def test_reloading_the_package_refreshes_its_submodules():
 
     Python keeps the old ones in sys.modules, so a new __init__ pairs with a
     stale catalog and the plugin dies with AttributeError on the first fetch.
+
+    Runs in a subprocess: reloading splinters module identity for every
+    later test in the same process, which cost an afternoon to diagnose.
     """
-    import importlib
+    import subprocess
     import sys
 
-    pkg = "plugins.generative_dashboard"
-    sys.modules[f"{pkg}.catalog"].__marker__ = "stale"
-    importlib.reload(sys.modules[pkg])
-    assert not hasattr(sys.modules[f"{pkg}.catalog"], "__marker__")
+    code = (
+        "import importlib, sys\n"
+        "import plugins.generative_dashboard\n"
+        "pkg = 'plugins.generative_dashboard'\n"
+        "sys.modules[pkg + '.catalog'].__marker__ = 'stale'\n"
+        "importlib.reload(sys.modules[pkg])\n"
+        "assert not hasattr(sys.modules[pkg + '.catalog'], '__marker__')\n"
+        "print('refreshed')\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=60)
+    assert "refreshed" in result.stdout, result.stderr
 
 
 def test_suffixes_survive_the_live_re_render(plugin, monkeypatch):
