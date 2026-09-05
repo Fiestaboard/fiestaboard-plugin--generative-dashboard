@@ -156,17 +156,19 @@ def test_a_result_from_an_old_config_generation_is_discarded(plugin):
 def test_a_result_arriving_after_cleanup_is_discarded(plugin):
     with plugin._bound_board(FLAGSHIP):
         plugin.fetch_data()
+    # The worker started before cleanup, so it carries the old generation.
+    stale = plugin._config_generation
     plugin.cleanup()
     with patch("requests.post", return_value=_reply(GOOD_GRID)):
         plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
-                    plugin._config_generation)
+                    stale)
     assert plugin._states["flagship"].tiles == []
 
 
 def test_the_worker_always_releases_its_in_flight_slot(plugin):
     import requests
 
-    plugin._inflight.add("flagship")
+    import time as _t; plugin._inflight["flagship"] = _t.monotonic()
     with patch("requests.post", side_effect=requests.RequestException("down")):
         plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
                     plugin._config_generation)

@@ -48,6 +48,10 @@ from .validation import (
 logger = logging.getLogger(__name__)
 
 MAX_WATCHLIST = 100
+
+# A worker older than this is presumed dead — its thread was killed by a
+# reload, or wedged beyond every network timeout — and its slot is reclaimed.
+WORKER_TTL = 600
 DEFAULT_BOARD_ROWS = 6
 DEFAULT_BOARD_COLS = 22
 OUTPUT_MODES = ("grid", "prose")
@@ -114,8 +118,11 @@ class GenerativeDashboardPlugin(PluginBase):
         # Reentrant: the generation decision holds the lock across _spawn,
         # which takes it again to claim the in-flight slot.
         self._lock = threading.RLock()
-        self._inflight: set[str] = set()
-        self._stopped = False
+        # Board-key -> monotonic start time of its running worker. Entries
+        # expire: a worker killed mid-flight (a plugin update at the wrong
+        # moment) once left its marker behind forever, and every later spawn
+        # was silently refused — a frozen board with nothing in the logs.
+        self._inflight: dict[str, float] = {}
         self._config_generation = 0
         self._outage_index = 0
 
@@ -160,7 +167,13 @@ class GenerativeDashboardPlugin(PluginBase):
             self._config_generation += 1
 
     def cleanup(self) -> None:
-        self._stopped = True
+        """Orphan any in-flight work — but never end this instance's life.
+
+        Disable calls cleanup, and disable→enable is a routine UI toggle. A
+        one-way stop latch here bricked a live board until a full reload.
+        """
+        with self._lock:
+            self._config_generation += 1
 
     # -- helpers ----------------------------------------------------------
 
@@ -309,11 +322,18 @@ class GenerativeDashboardPlugin(PluginBase):
             # board=None from the settings dialog; generating there would bill
             # the user for a keystroke.
             return False
-        if self._stopped or not config.get("api_key"):
+        if not config.get("api_key"):
             return False
         with self._lock:
-            if key in self._inflight:
-                return False
+            started = self._inflight.get(key)
+            if started is not None:
+                if time.monotonic() - started < WORKER_TTL:
+                    return False
+                logger.warning(
+                    "Worker for %s has been in flight for over %ds; presuming "
+                    "it dead and allowing a new one.", key, WORKER_TTL,
+                )
+                del self._inflight[key]
         if not (state.tiles or state.prose):
             return True  # cold start: go immediately
         interval = float(config.get("refresh_seconds", 300) or 300)
@@ -413,9 +433,10 @@ class GenerativeDashboardPlugin(PluginBase):
     def _spawn(self, key, geo, config, watchlist, current, previous, previous_board,
                generation, journal="") -> None:
         with self._lock:
-            if key in self._inflight:
+            started = self._inflight.get(key)
+            if started is not None and time.monotonic() - started < WORKER_TTL:
                 return
-            self._inflight.add(key)
+            self._inflight[key] = time.monotonic()
         threading.Thread(
             target=self._run,
             args=(key, geo, config, watchlist, current, previous, previous_board,
@@ -435,9 +456,9 @@ class GenerativeDashboardPlugin(PluginBase):
             outcome = None
         finally:
             with self._lock:
-                self._inflight.discard(key)
+                self._inflight.pop(key, None)
 
-        if self._stopped or generation != self._config_generation:
+        if generation != self._config_generation:
             return
 
         with self._lock:

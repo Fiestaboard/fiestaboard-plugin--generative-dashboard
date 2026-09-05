@@ -134,7 +134,7 @@ def test_the_snapshot_does_not_advance_when_generation_is_blocked(plugin, monkey
     _fetch(plugin)
     state = plugin._states["flagship"]
     state.tiles = [TileSpec("air.aqi", "AQI", None)]
-    plugin._inflight.add("flagship")  # a worker is already running
+    import time as _t; plugin._inflight["flagship"] = _t.monotonic()  # a worker is already running
     _values(monkeypatch, {"air.aqi": "168", "wx.temp": "61F"})
     _fetch(plugin)
     # Snapshot still holds the pre-change value, so the change stays pending
@@ -203,9 +203,35 @@ def test_config_change_discards_an_in_flight_result(plugin):
     assert plugin._config_generation != generation
 
 
-def test_cleanup_stops_further_swaps(plugin):
+def test_generation_resumes_after_a_disable_enable_cycle(plugin, monkeypatch):
+    # Disable calls cleanup(); a one-way stop latch bricked a live board
+    # until full reload. Cleanup must orphan in-flight results, not end the
+    # instance's working life.
     plugin.cleanup()
-    assert plugin._stopped
+    calls = _spy_spawn(plugin, monkeypatch)
+    _fetch(plugin)
+    assert calls, "a render after cleanup must be able to spawn again"
+
+
+def test_a_wedged_inflight_marker_expires(plugin, monkeypatch):
+    # A worker killed mid-flight (e.g. by a plugin update) left its marker
+    # behind forever; every later spawn was silently refused — the frozen
+    # board of 2026-09-05.
+    import time as _time
+
+    plugin._inflight["flagship"] = _time.monotonic() - 700  # long dead
+    calls = _spy_spawn(plugin, monkeypatch)
+    _fetch(plugin)
+    assert calls
+
+
+def test_a_live_inflight_marker_still_blocks(plugin, monkeypatch):
+    import time as _time
+
+    plugin._inflight["flagship"] = _time.monotonic()  # genuinely running
+    calls = _spy_spawn(plugin, monkeypatch)
+    _fetch(plugin)
+    assert calls == []
 
 
 def test_rows_are_emitted_in_the_shape_the_manifest_declares(plugin):
