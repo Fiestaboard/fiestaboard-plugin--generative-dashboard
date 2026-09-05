@@ -31,6 +31,29 @@ one is the reason to run it.
    `{{generative_dashboard.rows.N.text}}` lines, and add it to your rotation.
 5. **View, then tune.** Live with it a day, then adjust (see below).
 
+### Connecting an AI model
+
+Any endpoint that speaks the OpenAI chat-completions API works. Fill three
+fields:
+
+| Provider | `api_base_url` | `model` (example) | `api_key` |
+|---|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | your `sk-...` key |
+| OpenRouter | `https://openrouter.ai/api/v1` | `google/gemini-3.7-flash` | your `sk-or-...` key |
+| Ollama (local) | `http://YOUR-HOST:11434/v1` | `llama3.2` | any non-empty string |
+| LM Studio / MLX (local) | `http://YOUR-HOST:8080/v1` | as served | any non-empty string |
+
+Notes:
+
+- For a **local model on another machine**, use that machine's LAN address
+  and make sure the server listens on `0.0.0.0`, not just localhost. If
+  FiestaBoard runs in Docker on the same machine as the model, use
+  `http://host.docker.internal:PORT/v1`.
+- Local endpoints usually ignore the key, but the field is required — any
+  non-empty value works.
+- Nothing but the composition prompt is sent to the endpoint you configure;
+  there is no other network destination.
+
 ### Choosing a model
 
 The author's experience so far:
