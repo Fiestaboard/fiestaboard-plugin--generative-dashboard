@@ -172,7 +172,11 @@ def judge_grid(result, lines, scenario, geo):
     )
     checks["title"] = bool(result.banner)
     # Header framing is design, not signalling — only tile accents count.
-    checks["color_restraint"] = sum(1 for t in result.tiles if t.color) <= 3
+    colored = sum(1 for t in result.tiles if t.color)
+    checks["color_restraint"] = colored <= 5
+    # The owner wants a lively wall: a composition with zero color anywhere
+    # now counts against it.
+    checks["color_presence"] = bool(colored or result.banner_color)
     # A unit is owed only where the description names one; AQI and UV are
     # honestly unitless.
     unit_words = re.compile(r"MPH|Fahrenheit|percent|USD|minutes|distance", re.I)

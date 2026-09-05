@@ -433,8 +433,13 @@ def build_prose_prompt(
         "value reads 94,120 then write 94,120. Never state a percentage or a "
         "difference that was not given to you.\n\n"
         f"{_CHARSET_RULES}\n\n"
+        'Set "banner_color" to frame your headline as a colored title above '
+        "the text — pick the hue of the news: red for bad, orange for "
+        "warnings, green for good, blue for calm nights, yellow for bright "
+        "days. A colorless board reads as unfinished.\n\n"
         "Reply with JSON only:\n"
         '{"text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168", '
+        '"banner_color": "red", '
         '"reason": "why you changed it", '
         '"log": "one line on how things stand, for your future self"}'
     )

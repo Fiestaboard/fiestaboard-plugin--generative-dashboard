@@ -227,3 +227,45 @@ def test_the_retry_names_the_exact_violation(plugin):
         plugin._generate(GEO, config, ["fx.eur"], {"fx.eur": "0.8604"}, {}, [])
     retry_system = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
     assert "8604" in retry_system
+
+
+def test_a_landed_composition_is_journaled_to_disk(plugin, tmp_path, monkeypatch):
+    # Registry initialisation re-loads the plugin and swaps the sys.modules
+    # entry, so reach through the method's own globals to the complog object
+    # _run will actually call.
+    complog = type(plugin)._run.__globals__["complog"]
+    monkeypatch.setattr(complog, "_log_path", lambda: tmp_path / "comp.jsonl")
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with patch("requests.post", return_value=_reply(GOOD_GRID)):
+        plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                    plugin._config_generation)
+    entry = json.loads((tmp_path / "comp.jsonl").read_text().splitlines()[-1])
+    assert entry["headline"] == "AQI 168"
+    assert entry["key"] == "flagship"
+    assert any("168" in line for line in entry["lines"])
+
+
+def test_the_composition_log_rotates_rather_than_growing_forever(tmp_path, monkeypatch):
+    from plugins.generative_dashboard import complog
+
+    path = tmp_path / "comp.jsonl"
+    monkeypatch.setattr(complog, "_log_path", lambda: path)
+    for i in range(50):
+        complog.record({"i": i, "pad": "x" * 12000})
+    kept = path.read_text().splitlines()
+    assert path.stat().st_size < complog.MAX_BYTES + 20000
+    assert json.loads(kept[-1])["i"] == 49
+
+
+def test_a_landed_composition_emits_a_queryable_log_line(plugin, caplog):
+    import logging
+
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with caplog.at_level(logging.INFO):
+        with patch("requests.post", return_value=_reply(GOOD_GRID)):
+            plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                        plugin._config_generation)
+    assert any("COMPOSED" in r.message and "AQI 168" in r.message
+               for r in caplog.records)

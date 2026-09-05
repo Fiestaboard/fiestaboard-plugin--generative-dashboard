@@ -411,16 +411,15 @@ def test_the_models_own_affix_wins_over_inference():
     assert result.tiles[0].value == "18M"
 
 
-def test_at_most_three_tiles_keep_their_color():
-    # "At most three" is a promise to the reader, so the validator enforces
-    # it: the first three colored tiles keep their dots, the rest go plain.
+def test_the_color_cap_is_enforced_not_requested():
+    # Raised from three to five when the board's owner asked for more color;
+    # the cap still exists so a fully-colored board cannot happen.
     payload = {"tiles": [
-        {"label": f"L{i}", "variable": f"p.v{i}", "color": "red"} for i in range(5)
+        {"label": f"L{i}", "variable": f"p.v{i}", "color": "red"} for i in range(7)
     ]}
-    values = {f"p.v{i}": str(i) for i in range(5)}
+    values = {f"p.v{i}": str(i) for i in range(7)}
     result = _validate(payload, watchlist=list(values), values=values)
-    assert sum(1 for t in result.tiles if t.color) == 3
-    assert [t.color for t in result.tiles[:3]] == ["red", "red", "red"]
+    assert sum(1 for t in result.tiles if t.color) == 5
 
 
 def test_the_model_may_choose_the_list_layout():
@@ -497,3 +496,31 @@ def test_the_sentence_space_fix_never_splits_a_decimal():
     )
     assert "$335.31. EUR" in result.text
     assert "0.8604" in result.text
+
+
+def test_up_to_five_tiles_may_keep_their_color_now():
+    # Color is part of this board's voice; three was too shy for a wall
+    # whose owner wants it to feel alive.
+    payload = {"tiles": [
+        {"label": f"L{i}", "variable": f"p.v{i}", "color": "green"} for i in range(7)
+    ]}
+    values = {f"p.v{i}": str(i) for i in range(7)}
+    result = _validate(payload, watchlist=list(values), values=values)
+    assert sum(1 for t in result.tiles if t.color) == 5
+
+
+def test_prose_may_carry_a_banner_color_for_its_headline():
+    result = validate_prose(
+        {"text": "ALL QUIET TONIGHT.", "headline": "CALM EVENING",
+         "banner_color": "blue"},
+        geo=GEO, current={}, previous={},
+    )
+    assert result.banner_color == "blue"
+
+
+def test_an_invalid_prose_banner_color_is_dropped():
+    result = validate_prose(
+        {"text": "ALL QUIET.", "banner_color": "mauve"},
+        geo=GEO, current={}, previous={},
+    )
+    assert result.banner_color is None

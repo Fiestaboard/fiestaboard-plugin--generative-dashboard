@@ -31,11 +31,19 @@ from src.plugins.base import (
     PluginResult,
 )
 
-from . import catalog, fallback, gate
+from . import catalog, complog, fallback, gate
 from .journal import Journal
 from .when import local_now
 from .charset import sanitize
-from .layout import Geometry, Tile, geometry, placed_count, render_grid, wrap_center
+from .layout import (
+    Geometry,
+    Tile,
+    geometry,
+    placed_count,
+    render_banner,
+    render_grid,
+    wrap_center,
+)
 from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
 from .validation import (
     ValidationError,
@@ -216,6 +224,28 @@ class GenerativeDashboardPlugin(PluginBase):
             return {}
         return {str(k): sanitize(str(v)) for k, v in raw.items()}
 
+    def _render_outcome(self, outcome, geo, config, values) -> list[str]:
+        """What this composition looks like on its board, for the log."""
+        try:
+            if outcome.prose:
+                if outcome.headline and outcome.banner_color:
+                    title = render_banner(outcome.headline, outcome.banner_color,
+                                          geo.cols, weight=2)
+                    return ([title] + wrap_center(outcome.prose, geo.rows - 1, geo.cols))[: geo.rows]
+                return wrap_center(outcome.prose, geo.rows, geo.cols)
+            tiles = [
+                Tile(label=t.label,
+                     value=apply_prefix(apply_suffix(values.get(t.ref, ""), t.suffix), t.prefix),
+                     color=t.color)
+                for t in outcome.tiles if t.ref in values
+            ]
+            return render_grid(tiles, geo, banner=outcome.banner,
+                               banner_color=outcome.banner_color,
+                               subtitle=outcome.subtitle, layout=outcome.layout,
+                               use_color=bool(config.get("use_color", True)))
+        except Exception:
+            return []
+
     @staticmethod
     def _rows_to_map(raw: Any, value_key: str) -> dict[str, str]:
         """Read a {variable, <value_key>} row list into a map.
@@ -362,6 +392,12 @@ class GenerativeDashboardPlugin(PluginBase):
             stale, degraded = state.stale, state.degraded
 
         if config.get("output_mode", "grid") == "prose" and prose and not stale:
+            with self._lock:
+                headline, prose_hue = state.headline, state.banner_color
+            if headline and prose_hue and use_color:
+                title = render_banner(headline, prose_hue, geo.cols, weight=2)
+                body = wrap_center(prose, geo.rows - 1, geo.cols)
+                return ([title] + body)[: geo.rows], degraded, 0
             return wrap_center(prose, geo.rows, geo.cols), degraded, 0
 
         if specs:
@@ -485,6 +521,33 @@ class GenerativeDashboardPlugin(PluginBase):
             state.stale = False
             state.degraded = ""
             state.generated_at = local_now().strftime("%Y-%m-%dT%H:%M:%S")
+            lines = self._render_outcome(outcome, geo, config, current)
+            complog.record({
+                "at": state.generated_at,
+                "key": key,
+                "mode": "prose" if outcome.prose else "grid",
+                "layout": outcome.layout,
+                "banner": outcome.banner,
+                "banner_color": outcome.banner_color,
+                "subtitle": outcome.subtitle,
+                "headline": outcome.headline,
+                "reason": outcome.reason,
+                "log": outcome.log,
+                "tiles": [
+                    {"ref": t.ref, "label": t.label, "color": t.color,
+                     "value": current.get(t.ref, "")}
+                    for t in outcome.tiles
+                ],
+                "prose": outcome.prose,
+                "lines": lines,
+            })
+            logger.info(
+                "COMPOSED %s %s | %s | %s",
+                key,
+                "prose" if outcome.prose else "grid",
+                outcome.headline or "(no headline)",
+                outcome.reason or outcome.log or "",
+            )
 
     def _generate(self, geo, config, watchlist, current, previous, previous_board, journal=""):
         """One generation attempt, with a single stricter retry."""
@@ -544,8 +607,8 @@ class GenerativeDashboardPlugin(PluginBase):
                         payload, geo=geo, current=current, previous=previous
                     )
                     return Composition(
-                        tiles=[], banner="", banner_color=None, subtitle="",
-                        layout="auto", prose=result.text,
+                        tiles=[], banner="", banner_color=result.banner_color,
+                        subtitle="", layout="auto", prose=result.text,
                         headline=result.headline, reason=result.reason, log=result.log,
                     )
                 grid = validate_grid(

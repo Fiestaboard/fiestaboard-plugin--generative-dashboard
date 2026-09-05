@@ -79,6 +79,7 @@ class GridResult:
 class ProseResult:
     text: str
     headline: str
+    banner_color: str | None
     reason: str
     log: str
 
@@ -314,7 +315,7 @@ def validate_grid(
     for index, (ref, tile) in enumerate(chosen):
         if tile.color:
             kept += 1
-            if kept > 3:
+            if kept > 5:
                 chosen[index] = (ref, Tile(label=tile.label, value=tile.value, color=None))
 
     if not chosen:
@@ -370,9 +371,12 @@ def validate_prose(
     if not fits(text, geo.rows, geo.cols):
         raise ValidationError(f"Text does not fit {geo.rows} rows of {geo.cols}")
 
+    prose_hue = str(data.get("banner_color") or "").lower()
+
     return ProseResult(
         text=text,
         headline=sanitize(str(data.get("headline") or "")),
+        banner_color=prose_hue if prose_hue in ACCENT_COLORS else None,
         reason=sanitize(str(data.get("reason") or "")),
         log=" ".join(str(data.get("log") or "").split()),
     )

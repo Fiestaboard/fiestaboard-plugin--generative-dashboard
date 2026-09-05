@@ -400,3 +400,26 @@ def test_suffixes_survive_the_live_re_render(plugin, monkeypatch):
     state.tiles = [TileSpec("air.aqi", "TEMP", None, suffix="F")]
     _values(monkeypatch, {"air.aqi": "71", "wx.temp": "61F"})
     assert "71F" in " ".join(_fetch(plugin).formatted_lines)
+
+
+def test_prose_with_a_colored_headline_renders_it_as_a_framed_title(plugin):
+    plugin.config = dict(plugin.config, output_mode="prose")
+    _fetch(plugin)
+    state = plugin._states["flagship"]
+    state.prose = "STOCKS SLIPPING LATE."
+    state.headline = "MARKET WATCH"
+    state.banner_color = "red"
+    lines = _fetch(plugin).formatted_lines
+    top = next(l for l in lines if l.strip())
+    assert "{red}" in top and "MARKET WATCH" in top
+    assert any("SLIPPING" in l for l in lines)
+
+
+def test_prose_without_a_color_stays_a_plain_block(plugin):
+    plugin.config = dict(plugin.config, output_mode="prose")
+    _fetch(plugin)
+    state = plugin._states["flagship"]
+    state.prose = "ALL QUIET."
+    state.headline = "CALM"
+    state.banner_color = None
+    assert not any("{" in l for l in _fetch(plugin).formatted_lines)
