@@ -120,7 +120,11 @@ class BoardState:
     last_good: str = ""
     recent: dict[str, str] = field(default_factory=dict)
     journal: Journal = field(default_factory=Journal)
-    last_generated: float = 0.0
+    # None means "never" — an explicit sentinel, because monotonic() starts
+    # near zero on a freshly booted machine (CI runners, a rebooted Pi) and
+    # 0.0-as-never silently blocked regeneration for the first
+    # refresh_seconds of uptime.
+    last_generated: float | None = None
     outage_index: int = -1
     failures: int = 0
     stale: bool = False
@@ -428,6 +432,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 del self._inflight[key]
         if not (state.tiles or state.prose):
             return True  # cold start: go immediately
+        if state.last_generated is None:
+            return True
         interval = float(config.get("refresh_seconds", 300) or 300)
         return (time.monotonic() - state.last_generated) >= interval
 
