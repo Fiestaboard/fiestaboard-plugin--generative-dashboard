@@ -437,15 +437,16 @@ def validate_grid(
         ))
         seen.add(ref)
 
-    # A board where everything is colored says nothing: the first three
-    # accents survive, the rest go plain. Enforced here because the reader
-    # was promised restraint, and promises to readers are not left to the
-    # model's mood.
-    kept = 0
+    # Two kinds of color, two rules. A rule-driven light is a banded status
+    # — a row of greens with one yellow is what glanceable means — so rules
+    # are uncapped; they are self-limiting by design. A static hue is
+    # emphasis, and emphasis everywhere is wallpaper: the first three
+    # survive, the rest go plain.
+    kept_static = 0
     for index, (ref, tile) in enumerate(chosen):
-        if tile.color:
-            kept += 1
-            if kept > 5:
+        if tile.color and ref not in color_rules:
+            kept_static += 1
+            if kept_static > 3:
                 chosen[index] = (ref, Tile(label=tile.label, value=tile.value, color=None))
 
     if not chosen:

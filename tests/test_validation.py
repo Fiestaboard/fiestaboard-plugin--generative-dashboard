@@ -411,15 +411,14 @@ def test_the_models_own_affix_wins_over_inference():
     assert result.tiles[0].value == "18M"
 
 
-def test_the_color_cap_is_enforced_not_requested():
-    # Raised from three to five when the board's owner asked for more color;
-    # the cap still exists so a fully-colored board cannot happen.
+def test_static_hues_stay_scarce():
+    # A fixed color is emphasis, not status; seven static reds is wallpaper.
     payload = {"tiles": [
         {"label": f"L{i}", "variable": f"p.v{i}", "color": "red"} for i in range(7)
     ]}
     values = {f"p.v{i}": str(i) for i in range(7)}
     result = _validate(payload, watchlist=list(values), values=values)
-    assert sum(1 for t in result.tiles if t.color) == 5
+    assert sum(1 for t in result.tiles if t.color) == 3
 
 
 def test_the_model_may_choose_the_list_layout():
@@ -498,15 +497,17 @@ def test_the_sentence_space_fix_never_splits_a_decimal():
     assert "0.8604" in result.text
 
 
-def test_up_to_five_tiles_may_keep_their_color_now():
-    # Color is part of this board's voice; three was too shy for a wall
-    # whose owner wants it to feel alive.
+def test_rule_driven_lights_are_uncapped():
+    # A banded status light is data, and a row of greens with one yellow is
+    # what glanceable means — rules are self-limiting by design.
+    rule = 'IF(p.v0 > 100, "red", "green")'
     payload = {"tiles": [
-        {"label": f"L{i}", "variable": f"p.v{i}", "color": "green"} for i in range(7)
+        {"label": f"L{i}", "variable": f"p.v{i}",
+         "color": f'IF(p.v{i} > 100, "red", "green")'} for i in range(7)
     ]}
     values = {f"p.v{i}": str(i) for i in range(7)}
     result = _validate(payload, watchlist=list(values), values=values)
-    assert sum(1 for t in result.tiles if t.color) == 5
+    assert sum(1 for t in result.tiles if t.color) == 7
 
 
 def test_prose_may_carry_a_banner_color_for_its_headline():

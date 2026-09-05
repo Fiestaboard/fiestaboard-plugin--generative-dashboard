@@ -332,3 +332,28 @@ def test_hydration_survives_a_missing_or_garbage_log(manifest, config, monkeypat
     with reborn._bound_board(FLAGSHIP):
         result = reborn.fetch_data()
     assert result.available  # plain fallback, no crash
+
+
+def test_hydration_seeds_last_known_values_for_slow_plugins(plugin, tmp_path, monkeypatch, manifest, config):
+    # A restart plus one slow plugin cycle used to flash the fallback:
+    # hydrated tiles existed but recent values did not.
+    complog = type(plugin)._run.__globals__["complog"]
+    monkeypatch.setattr(complog, "_log_path", lambda: tmp_path / "c.jsonl")
+    monkeypatch.setenv("GENERATIVE_DASHBOARD_COMPLOG", str(tmp_path / "c.jsonl"))
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with patch("requests.post", return_value=_reply(GOOD_GRID)):
+        plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                    plugin._config_generation)
+
+    reborn = GenerativeDashboardPlugin(manifest)
+    reborn.config = config
+    # every source plugin misses its deadline this cycle
+    monkeypatch.setattr(catalog, "read_values",
+                        lambda refs, board, exclude, fallback=None, **kw: dict(fallback or {}))
+    monkeypatch.setattr(reborn, "_spawn", lambda *a, **k: None)
+    with reborn._bound_board(FLAGSHIP):
+        lines = reborn.fetch_data().formatted_lines
+    joined = " ".join(lines)
+    assert "168" in joined  # last-known value carried the board
+    assert "GRASS" not in joined

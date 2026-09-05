@@ -158,15 +158,19 @@ def test_prose_is_shown_when_the_model_has_produced_some(plugin):
     assert "ALL QUIET" in " ".join(_fetch(plugin).formatted_lines)
 
 
-def test_stale_prose_gives_way_to_a_grid_of_live_values(plugin, monkeypatch):
+def test_a_failed_regeneration_never_flashes_the_fallback_grid(plugin, monkeypatch):
+    # The old stale rule swapped prose for the alphabetical pollen grid on
+    # any model hiccup — the 'intermittent weird grid' a user photographed.
+    # Live templates keep a sentence current, so the composition stays up.
     plugin.config = dict(plugin.config, output_mode="prose")
     _fetch(plugin)
     state = plugin._states["flagship"]
-    state.prose = "AQI IS 68."
-    state.stale = True  # a generation failed after the numbers moved
+    state.prose = "AQI IS {air.aqi} RIGHT NOW."
+    state.stale = True  # a generation just failed
     _values(monkeypatch, {"air.aqi": "999", "wx.temp": "61F"})
     joined = " ".join(_fetch(plugin).formatted_lines)
-    assert "999" in joined and "AQI IS 68" not in joined
+    assert "999" in joined  # live value, old sentence, no pollen grid
+    assert "GRASS" not in joined
 
 
 def test_validate_config_requires_an_api_key(plugin):

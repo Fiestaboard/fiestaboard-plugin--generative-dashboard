@@ -227,6 +227,14 @@ class GenerativeDashboardPlugin(PluginBase):
                 state.headline = str(entry.get("headline") or "")
                 state.reason = str(entry.get("reason") or "")
                 state.generated_at = str(entry.get("at") or "")
+                # Seed last-known values so a slow source plugin right after
+                # a restart shows its last reading instead of vanishing the
+                # whole composition.
+                state.recent = {
+                    str(t["ref"]): str(t.get("value") or "")
+                    for t in (entry.get("tiles") or [])
+                    if t.get("ref") and t.get("value")
+                }
                 state.degraded = ""
             for when, text in complog.recent_logs_for(key):
                 state.journal.add(when, text)
@@ -445,7 +453,10 @@ class GenerativeDashboardPlugin(PluginBase):
             layout = state.layout
             stale, degraded = state.stale, state.degraded
 
-        if config.get("output_mode", "grid") != "grid" and prose and not stale:
+        # Stale never demotes a composition anymore: live templates keep a
+        # sentence's numbers current, and the old rule's only surviving
+        # effect was flashing the alphabetical fallback on a model hiccup.
+        if config.get("output_mode", "grid") != "grid" and prose:
             with self._lock:
                 headline, prose_hue = state.headline, state.banner_color
             live_text = render_prose(prose, values)
