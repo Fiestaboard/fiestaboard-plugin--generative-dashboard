@@ -44,11 +44,18 @@ from .layout import (
     render_grid,
     wrap_center,
 )
-from .llm import DashboardLLM, LLMError, build_grid_prompt, build_prose_prompt
+from .llm import (
+    DashboardLLM,
+    LLMError,
+    build_auto_prompt,
+    build_grid_prompt,
+    build_prose_prompt,
+)
 from .validation import (
     ValidationError,
     apply_prefix,
     apply_suffix,
+    validate_auto,
     validate_grid,
     validate_prose,
 )
@@ -62,7 +69,7 @@ MAX_WATCHLIST = 100
 WORKER_TTL = 600
 DEFAULT_BOARD_ROWS = 6
 DEFAULT_BOARD_COLS = 22
-OUTPUT_MODES = ("grid", "prose")
+OUTPUT_MODES = ("auto", "grid", "prose")
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,7 @@ class Composition:
     headline: str
     reason: str
     log: str
+    thinking: str = ""
 
 
 @dataclass
@@ -339,6 +347,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 self._spawn(
                     key, geo, config, watchlist, dict(values), dict(state.previous),
                     list(state.lines), self._config_generation, state.journal.render(),
+                    "prose" if state.prose else "grid",
                 )
 
         lines, degraded, stat_count = self._compose(state, geo, config, values, watchlist)
@@ -391,7 +400,7 @@ class GenerativeDashboardPlugin(PluginBase):
             layout = state.layout
             stale, degraded = state.stale, state.degraded
 
-        if config.get("output_mode", "grid") == "prose" and prose and not stale:
+        if config.get("output_mode", "grid") != "grid" and prose and not stale:
             with self._lock:
                 headline, prose_hue = state.headline, state.banner_color
             if headline and prose_hue and use_color:
@@ -435,7 +444,16 @@ class GenerativeDashboardPlugin(PluginBase):
         # Nothing has been asked of the model yet when no board has rendered
         # this plugin; calling that an LLM failure reads as an outage.
         reason = "no_llm" if self.board is not None else "awaiting_board"
-        return render_grid(tiles, geo, use_color=False), reason, placed_count(tiles, geo)
+        lines = render_grid(tiles, geo, use_color=False)
+        with self._lock:
+            composing = self._state_key() in self._inflight and not (
+                state.tiles or state.prose
+            )
+        if composing and not lines[-1].strip():
+            # A worker is drafting the first composition; say so on the spare
+            # row so a fresh board reads as working rather than wedged.
+            lines = lines[:-1] + ["COMPOSING...".center(geo.cols).rstrip()]
+        return lines, reason, placed_count(tiles, geo)
 
     def _result(
         self, state: BoardState, lines: list[str], degraded: str, stat_count: int
@@ -467,7 +485,7 @@ class GenerativeDashboardPlugin(PluginBase):
     # -- generation, off the render path ----------------------------------
 
     def _spawn(self, key, geo, config, watchlist, current, previous, previous_board,
-               generation, journal="") -> None:
+               generation, journal="", current_form="grid") -> None:
         with self._lock:
             started = self._inflight.get(key)
             if started is not None and time.monotonic() - started < WORKER_TTL:
@@ -476,16 +494,17 @@ class GenerativeDashboardPlugin(PluginBase):
         threading.Thread(
             target=self._run,
             args=(key, geo, config, watchlist, current, previous, previous_board,
-                  generation, journal),
+                  generation, journal, current_form),
             name=f"generative-dashboard-{key}",
             daemon=True,
         ).start()
 
     def _run(self, key, geo, config, watchlist, current, previous, previous_board,
-             generation, journal="") -> None:
+             generation, journal="", current_form="grid") -> None:
         try:
             outcome = self._generate(
-                geo, config, watchlist, current, previous, previous_board, journal
+                geo, config, watchlist, current, previous, previous_board, journal,
+                current_form,
             )
         except Exception:
             logger.exception("Dashboard generation failed")
@@ -533,6 +552,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 "headline": outcome.headline,
                 "reason": outcome.reason,
                 "log": outcome.log,
+                "thinking": outcome.thinking,
                 "tiles": [
                     {"ref": t.ref, "label": t.label, "color": t.color,
                      "value": current.get(t.ref, "")}
@@ -542,14 +562,16 @@ class GenerativeDashboardPlugin(PluginBase):
                 "lines": lines,
             })
             logger.info(
-                "COMPOSED %s %s | %s | %s",
+                "COMPOSED %s %s | %s | %s | THOUGHT: %s",
                 key,
                 "prose" if outcome.prose else "grid",
                 outcome.headline or "(no headline)",
                 outcome.reason or outcome.log or "",
+                outcome.thinking[:100],
             )
 
-    def _generate(self, geo, config, watchlist, current, previous, previous_board, journal=""):
+    def _generate(self, geo, config, watchlist, current, previous, previous_board,
+                  journal="", current_form="grid"):
         """One generation attempt, with a single stricter retry."""
         client = DashboardLLM(
             base_url=str(config.get("api_base_url", "https://api.openai.com/v1")),
@@ -575,7 +597,16 @@ class GenerativeDashboardPlugin(PluginBase):
                 + (rejection or "it broke the rules")
                 + ". Fix exactly that and change nothing else."
             )
-            if mode == "prose":
+            if mode == "auto":
+                system, user = build_auto_prompt(
+                    geo=geo, refs=watchlist, labels=labels, notes=notes,
+                    current=current, previous=previous, previous_board=previous_board,
+                    use_color=use_color, extra_instructions=extra + suffix,
+                    now=local_now(), journal=journal, descriptions=descriptions,
+                    audience=audience, groups=groups, rotation=rotation,
+                    current_form=current_form,
+                )
+            elif mode == "prose":
                 system, user = build_prose_prompt(
                     geo=geo, refs=watchlist, labels=labels, notes=notes,
                     current=current, previous=previous, previous_board=previous_board,
@@ -602,20 +633,35 @@ class GenerativeDashboardPlugin(PluginBase):
                 return None
 
             try:
-                if mode == "prose":
-                    result = validate_prose(
+                if mode == "auto":
+                    outcome = validate_auto(
+                        payload, watchlist=watchlist, pinned=pinned, values=current,
+                        labels=labels, geo=geo, use_color=use_color,
+                        previous=previous, descriptions=descriptions,
+                    )
+                    grid = None if hasattr(outcome, "text") else outcome
+                    prose_result = outcome if grid is None else None
+                elif mode == "prose":
+                    prose_result = validate_prose(
                         payload, geo=geo, current=current, previous=previous
                     )
-                    return Composition(
-                        tiles=[], banner="", banner_color=result.banner_color,
-                        subtitle="", layout="auto", prose=result.text,
-                        headline=result.headline, reason=result.reason, log=result.log,
+                    grid = None
+                else:
+                    grid = validate_grid(
+                        payload, watchlist=watchlist, pinned=pinned, values=current,
+                        labels=labels, geo=geo, use_color=use_color,
+                        previous=previous, descriptions=descriptions,
                     )
-                grid = validate_grid(
-                    payload, watchlist=watchlist, pinned=pinned, values=current,
-                    labels=labels, geo=geo, use_color=use_color, previous=previous,
-                    descriptions=descriptions,
-                )
+                    prose_result = None
+
+                if prose_result is not None:
+                    return Composition(
+                        tiles=[], banner="", banner_color=prose_result.banner_color,
+                        subtitle="", layout="auto", prose=prose_result.text,
+                        headline=prose_result.headline, reason=prose_result.reason,
+                        log=prose_result.log, thinking=prose_result.thinking,
+                    )
+
                 specs = [
                     TileSpec(
                         ref=ref, label=tile.label, color=tile.color,
@@ -627,8 +673,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 return Composition(
                     tiles=specs, banner=grid.banner, banner_color=grid.banner_color,
                     subtitle=grid.subtitle, layout=grid.layout, prose="",
-                    headline=grid.headline,
-                    reason=grid.reason, log=grid.log,
+                    headline=grid.headline, reason=grid.reason, log=grid.log,
+                    thinking=grid.thinking,
                 )
             except ValidationError as exc:
                 rejection = str(exc)

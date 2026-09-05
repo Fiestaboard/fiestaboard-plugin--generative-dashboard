@@ -423,3 +423,47 @@ def test_prose_without_a_color_stays_a_plain_block(plugin):
     state.headline = "CALM"
     state.banner_color = None
     assert not any("{" in l for l in _fetch(plugin).formatted_lines)
+
+
+def test_a_cold_board_says_it_is_composing(plugin, monkeypatch):
+    import time as _t
+
+    # Worker in flight, nothing composed yet: the fallback grid shows, with a
+    # quiet status row so the board reads as working rather than wedged.
+    monkeypatch.setattr(plugin, "_spawn",
+                        lambda key, *a, **k: plugin._inflight.__setitem__(key, _t.monotonic()))
+    lines = _fetch(plugin).formatted_lines
+    assert any("COMPOSING" in l for l in lines)
+
+
+def test_the_composing_note_never_covers_a_real_composition(plugin, monkeypatch):
+    import time as _t
+
+    _fetch(plugin)
+    plugin._states["flagship"].tiles = [TileSpec("air.aqi", "AQI", None)]
+    plugin._inflight["flagship"] = _t.monotonic()
+    lines = _fetch(plugin).formatted_lines
+    assert not any("COMPOSING" in l for l in lines)
+
+
+def test_an_idle_fallback_does_not_pretend_to_be_composing(plugin):
+    # No worker running (e.g. repeated LLM failure): saying COMPOSING would
+    # be a lie; the degraded flag tells that story.
+    lines = _fetch(plugin).formatted_lines
+    assert not any("COMPOSING" in l for l in lines)
+
+
+def test_auto_mode_is_a_valid_config(plugin):
+    assert not any("output_mode" in e
+                   for e in plugin.validate_config({"api_key": "k", "output_mode": "auto"}))
+
+
+def test_auto_mode_displays_whatever_form_the_model_chose(plugin):
+    plugin.config = dict(plugin.config, output_mode="auto")
+    _fetch(plugin)
+    state = plugin._states["flagship"]
+    state.prose = "ALL QUIET TONIGHT."
+    assert any("QUIET" in l for l in _fetch(plugin).formatted_lines)
+    state.prose = ""
+    state.tiles = [TileSpec("air.aqi", "AQI", None)]
+    assert any("AQI" in l for l in _fetch(plugin).formatted_lines)

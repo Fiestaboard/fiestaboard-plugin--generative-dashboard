@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
+_THINKING_RULE = (
+    'The "thinking" key comes FIRST, before every other key. Use it to '
+    "actually reason for a few sentences: what changed, what time it is for "
+    "the people watching, what deserves the wall right now, and why this "
+    "shape serves it. The board only shows the keys after it — the thinking "
+    "is your worksheet, and it is kept for review. Write it as plain "
+    "sentences with no quotation marks and no line breaks — it lives inside "
+    "JSON.\n\n"
+)
+
 _CHARSET_RULES = (
     "The board renders UPPERCASE A-Z, digits, space, and only these symbols: "
     "! @ # $ ( ) - + & = ; : ' \" % , . / ? "
@@ -90,13 +100,13 @@ class DashboardLLM:
 
         cleaned = _FENCE_RE.sub("", content).strip()
         try:
-            parsed = json.loads(cleaned)
+            parsed = json.loads(cleaned, strict=False)
         except json.JSONDecodeError:
             # Trailing commas are the local models' favourite slip. A repair
             # costs nothing; a retry costs a whole model call.
             repaired = re.sub(r",\s*([}\]])", r"\1", cleaned)
             try:
-                parsed = json.loads(repaired)
+                parsed = json.loads(repaired, strict=False)
             except json.JSONDecodeError as exc:
                 raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
         if not isinstance(parsed, dict):
@@ -234,25 +244,27 @@ def _with_extra(system: str, extra_instructions: str) -> str:
     return system + (f"\n\n{extra_instructions}" if extra_instructions.strip() else "")
 
 
-def build_grid_prompt(
-    *,
-    geo: Geometry,
-    refs: list[str],
-    labels: dict[str, str],
-    notes: dict[str, str],
-    current: dict[str, str],
-    previous: dict[str, str],
-    previous_board: list[str],
-    use_color: bool,
-    extra_instructions: str,
-    now: datetime | None = None,
-    journal: str = "",
-    descriptions: dict[str, str] | None = None,
-    audience: str = "",
-    groups: list[dict] | None = None,
-    rotation: list[str] | None = None,
-) -> tuple[str, str]:
-    """System and user prompts for tile-based composition."""
+def _grid_schema(use_color: bool) -> str:
+    if use_color:
+        return (
+            '{"thinking": "a few sentences of reasoning first", '
+            '"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}, '
+            '{"label": "NOW", "variable": "wx.temp", "suffix": "F"}], '
+            '"banner": "AIR QUALITY", "banner_color": "red", '
+            '"subtitle": "KEEP WINDOWS SHUT", "headline": "AQI 168", '
+            '"reason": "why you changed it", '
+            '"log": "one line on how things stand, for your future self"}'
+        )
+    return (
+        '{"thinking": "a few sentences of reasoning first", '
+        '"tiles": [{"label": "AQI", "variable": "air.aqi"}], '
+        '"banner": "AIR QUALITY", "headline": "AQI 168", '
+        '"reason": "why you changed it", '
+        '"log": "one line on how things stand, for your future self"}'
+    )
+
+
+def _grid_rules(geo: Geometry, use_color: bool) -> str:
     if use_color:
         colour_rule = (
             'Set "color" on a tile to show the *level* of that stat: green when '
@@ -262,32 +274,19 @@ def build_grid_prompt(
             "this board, never decoration. A UV index, an air quality number or "
             "a pollen count all read this way. Leave a stat uncolored when its "
             "level means nothing — a clock, a date and a ticker have no level. "
-            "Color at most three tiles; a board where everything is colored "
-            "says nothing at all.\n\n"
+            "Color is part of this board's voice — a wall of plain flaps "
+            "reads as unfinished, so color every stat whose level genuinely "
+            "reads, up to five. Leave the truly level-less stats plain; a "
+            "board where every single tile is colored still says nothing.\n\n"
             'Set "banner_color" to color the title itself, which is where color '
             "reads best of all. Valid colors: "
             f"{', '.join(ACCENT_COLORS)}.\n\n"
         )
-        example = (
-            '{"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}, '
-            '{"label": "NOW", "variable": "wx.temp", "suffix": "F"}], '
-            '"banner": "AIR QUALITY", "banner_color": "red", '
-            '"subtitle": "KEEP WINDOWS SHUT", "headline": "AQI 168", '
-            '"reason": "why you changed it", '
-            '"log": "one line on how things stand, for your future self"}'
-        )
     else:
         colour_rule = ""
-        example = (
-            '{"tiles": [{"label": "AQI", "variable": "air.aqi"}], '
-            '"banner": "AIR QUALITY", "headline": "AQI 168", '
-            '"reason": "why you changed it", '
-            '"log": "one line on how things stand, for your future self"}'
-        )
 
-    system = (
-        _audience_block(audience)
-        + "You lay out a stats dashboard for a split-flap board.\n\n"
+    return (
+        "You lay out a stats dashboard for a split-flap board.\n\n"
         f"You may place at most {geo.tile_budget} tiles, arranged in "
         f"{geo.tile_columns} column(s) of {geo.tile_width} cells, reading left "
         "to right then down. The most important stat goes first.\n\n"
@@ -368,7 +367,34 @@ def build_grid_prompt(
         "Keep stats that have not changed in the positions they already "
         "occupy. Moving things for no reason makes the board noisy.\n\n"
         f"{_CHARSET_RULES}\n\n"
-        f"Reply with JSON only:\n{example}"
+    )
+
+
+def build_grid_prompt(
+    *,
+    geo: Geometry,
+    refs: list[str],
+    labels: dict[str, str],
+    notes: dict[str, str],
+    current: dict[str, str],
+    previous: dict[str, str],
+    previous_board: list[str],
+    use_color: bool,
+    extra_instructions: str,
+    now: datetime | None = None,
+    journal: str = "",
+    descriptions: dict[str, str] | None = None,
+    audience: str = "",
+    groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
+) -> tuple[str, str]:
+    """System and user prompts for tile-based composition."""
+    system = (
+        _audience_block(audience)
+        + _grid_rules(geo, use_color)
+        + _THINKING_RULE
+        + "Reply with JSON only:\n"
+        + _grid_schema(use_color)
     )
     return (
         _with_extra(system, extra_instructions),
@@ -379,27 +405,18 @@ def build_grid_prompt(
     )
 
 
-def build_prose_prompt(
-    *,
-    geo: Geometry,
-    refs: list[str],
-    labels: dict[str, str],
-    notes: dict[str, str],
-    current: dict[str, str],
-    previous: dict[str, str],
-    previous_board: list[str],
-    extra_instructions: str,
-    now: datetime | None = None,
-    journal: str = "",
-    descriptions: dict[str, str] | None = None,
-    audience: str = "",
-    groups: list[dict] | None = None,
-    rotation: list[str] | None = None,
-) -> tuple[str, str]:
-    """System and user prompts for sentence composition."""
-    system = (
-        _audience_block(audience)
-        + "You write a very short status summary for a split-flap board.\n\n"
+def _prose_schema() -> str:
+    return (
+        '{"thinking": "a few sentences of reasoning first", '
+        '"text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168", '
+        '"banner_color": "red", "reason": "why you changed it", '
+        '"log": "one line on how things stand, for your future self"}'
+    )
+
+
+def _prose_rules(geo: Geometry) -> str:
+    return (
+        "You write a very short status summary for a split-flap board.\n\n"
         f"Aim for roughly {int(geo.prose_budget * 0.8)} characters and never "
         f"exceed {geo.prose_budget}. It wraps at {geo.cols} columns across "
         f"{geo.rows} rows. Two or three short sentences fill a board well; a "
@@ -437,16 +454,93 @@ def build_prose_prompt(
         "the text — pick the hue of the news: red for bad, orange for "
         "warnings, green for good, blue for calm nights, yellow for bright "
         "days. A colorless board reads as unfinished.\n\n"
-        "Reply with JSON only:\n"
-        '{"text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168", '
-        '"banner_color": "red", '
-        '"reason": "why you changed it", '
-        '"log": "one line on how things stand, for your future self"}'
+    )
+
+
+def build_prose_prompt(
+    *,
+    geo: Geometry,
+    refs: list[str],
+    labels: dict[str, str],
+    notes: dict[str, str],
+    current: dict[str, str],
+    previous: dict[str, str],
+    previous_board: list[str],
+    extra_instructions: str,
+    now: datetime | None = None,
+    journal: str = "",
+    descriptions: dict[str, str] | None = None,
+    audience: str = "",
+    groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
+) -> tuple[str, str]:
+    """System and user prompts for sentence composition."""
+    system = (
+        _audience_block(audience)
+        + _prose_rules(geo)
+        + _THINKING_RULE
+        + "Reply with JSON only:\n"
+        + _prose_schema()
     )
     return (
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
             descriptions, True, groups, rotation,
+        ),
+    )
+
+
+def build_auto_prompt(
+    *,
+    geo: Geometry,
+    refs: list[str],
+    labels: dict[str, str],
+    notes: dict[str, str],
+    current: dict[str, str],
+    previous: dict[str, str],
+    previous_board: list[str],
+    use_color: bool = True,
+    extra_instructions: str = "",
+    now: datetime | None = None,
+    journal: str = "",
+    descriptions: dict[str, str] | None = None,
+    audience: str = "",
+    groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
+    current_form: str = "grid",
+) -> tuple[str, str]:
+    """One prompt, two possible shapes: the model chooses the board's form.
+
+    The choice is sticky on purpose. Flipping between a tile grid and a
+    paragraph is the loudest thing this board can do, so the current form is
+    named and defended: it changes only when the content genuinely demands
+    the other shape.
+    """
+    system = (
+        _audience_block(audience)
+        + "You compose this split-flap board, and you choose its FORM first.\n\n"
+        + "A GRID suits a moment with several stats each worth a glance. "
+        "PROSE suits a moment with one story that needs a sentence — an "
+        "alert, a milestone, a change worth explaining.\n\n"
+        + f"CURRENT FORM: {current_form}. Changing form is the loudest thing "
+        "this board can do; keep the current form unless the moment "
+        "genuinely demands the other. Say why in your thinking either way.\n\n"
+        + "IF YOU CHOOSE GRID, these rules apply:\n\n"
+        + _grid_rules(geo, use_color)
+        + "\nIF YOU CHOOSE PROSE, these rules apply:\n\n"
+        + _prose_rules(geo)
+        + "\n"
+        + _THINKING_RULE
+        + 'Reply with JSON only. Put "thinking" first and "format" second '
+        '("grid" or "prose"), then the keys of the shape you chose:\n'
+        "GRID: " + _grid_schema(use_color) + "\n"
+        "PROSE: " + _prose_schema()
+    )
+    return (
+        _with_extra(system, extra_instructions),
+        _context_block(
+            geo, refs, labels, notes, current, previous, previous_board, now, journal,
+            descriptions, use_color, groups, rotation,
         ),
     )

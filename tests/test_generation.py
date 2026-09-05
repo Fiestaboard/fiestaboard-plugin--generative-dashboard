@@ -269,3 +269,28 @@ def test_a_landed_composition_emits_a_queryable_log_line(plugin, caplog):
                         plugin._config_generation)
     assert any("COMPOSED" in r.message and "AQI 168" in r.message
                for r in caplog.records)
+
+
+def test_auto_mode_uses_the_auto_prompt_and_lands_either_form(plugin):
+    config = dict(plugin.config, output_mode="auto")
+    payload = {"thinking": "one story dominates", "format": "prose",
+               "text": "AQI ROSE FROM 31 TO 168.", "headline": "AQI 168",
+               "banner_color": "red", "reason": "R", "log": "L"}
+    with patch("requests.post", return_value=_reply(payload)) as post:
+        out = plugin._generate(GEO, config, WATCHLIST, CURRENT, PREVIOUS, [])
+    system = post.call_args.kwargs["json"]["messages"][0]["content"]
+    assert '"format"' in system
+    assert out.prose == "AQI ROSE FROM 31 TO 168."
+
+
+def test_the_thinking_reaches_the_composition_log(plugin, tmp_path, monkeypatch):
+    complog = type(plugin)._run.__globals__["complog"]
+    monkeypatch.setattr(complog, "_log_path", lambda: tmp_path / "c.jsonl")
+    payload = dict(GOOD_GRID, thinking="evening; market story leads")
+    with plugin._bound_board(FLAGSHIP):
+        plugin.fetch_data()
+    with patch("requests.post", return_value=_reply(payload)):
+        plugin._run("flagship", GEO, plugin.config, WATCHLIST, CURRENT, PREVIOUS, [],
+                    plugin._config_generation)
+    entry = json.loads((tmp_path / "c.jsonl").read_text().splitlines()[-1])
+    assert entry["thinking"] == "evening; market story leads"

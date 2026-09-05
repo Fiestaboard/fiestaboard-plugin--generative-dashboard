@@ -524,3 +524,46 @@ def test_an_invalid_prose_banner_color_is_dropped():
         geo=GEO, current={}, previous={},
     )
     assert result.banner_color is None
+
+
+def test_auto_dispatches_a_grid_payload_to_the_grid_validator():
+    from plugins.generative_dashboard.validation import GridResult, validate_auto
+
+    payload = {"format": "grid", "tiles": [{"label": "AQI", "variable": "air.aqi"}]}
+    result = validate_auto(
+        payload, watchlist=WATCHLIST, pinned=[], values=VALUES, labels={},
+        geo=GEO, use_color=True, previous={}, descriptions={},
+    )
+    assert isinstance(result, GridResult)
+
+
+def test_auto_dispatches_a_prose_payload_to_the_prose_validator():
+    from plugins.generative_dashboard.validation import ProseResult, validate_auto
+
+    payload = {"format": "prose", "text": "ALL QUIET TONIGHT."}
+    result = validate_auto(
+        payload, watchlist=WATCHLIST, pinned=[], values=VALUES, labels={},
+        geo=GEO, use_color=True, previous={}, descriptions={},
+    )
+    assert isinstance(result, ProseResult)
+
+
+def test_auto_infers_the_form_when_the_model_forgets_the_field():
+    from plugins.generative_dashboard.validation import ProseResult, validate_auto
+
+    result = validate_auto(
+        {"text": "ALL QUIET."}, watchlist=WATCHLIST, pinned=[], values=VALUES,
+        labels={}, geo=GEO, use_color=True, previous={}, descriptions={},
+    )
+    assert isinstance(result, ProseResult)
+
+
+def test_the_models_thinking_is_captured_not_discarded():
+    result = _validate(_grid(thinking="  Evening, market closed;\n the AQI story matters most.  "))
+    assert "AQI story" in result.thinking
+    assert "\n" not in result.thinking
+
+
+def test_thinking_is_capped_so_it_cannot_bloat_the_log():
+    result = _validate(_grid(thinking="x" * 5000))
+    assert len(result.thinking) <= 600

@@ -431,3 +431,39 @@ def test_prose_is_told_to_speak_direction_not_signs():
     # says it.
     system, _ = _prompt(build_prose_prompt)
     assert "minus" in system.lower() or "sign" in system.lower()
+
+
+def test_every_schema_puts_thinking_first():
+    # Autoregressive models reason only in tokens they emit before the
+    # answer; a thinking field after the tiles would be post-hoc fiction.
+    for builder in (build_grid_prompt, build_prose_prompt):
+        system, _ = _prompt(builder)
+        assert '"thinking"' in system
+        schema = system[system.index("Reply with JSON only"):]
+        assert schema.index('"thinking"') < len(schema)
+        assert '"thinking"' in schema.split(",")[0]
+
+
+def test_the_auto_prompt_carries_both_rulebooks_and_stickiness():
+    from plugins.generative_dashboard.llm import build_auto_prompt
+
+    system, user = _prompt(build_auto_prompt, current_form="prose")
+    lowered = system.lower()
+    assert '"format"' in system
+    assert "tiles" in lowered and "text" in lowered
+    assert "current form" in lowered  # changing shape is the loudest move
+    assert "prose" in user or "prose" in lowered
+
+
+def test_literal_newlines_inside_json_strings_are_tolerated():
+    # Thinking is free text; models put real newlines in it, which strict
+    # JSON rejects wholesale.
+    raw = '{"thinking": "line one\nline two", "tiles": []}'
+    with patch("requests.post", return_value=_response(raw)):
+        result = _client().complete("sys", "user")
+    assert "line one" in result["thinking"]
+
+
+def test_the_thinking_rule_warns_about_json_hostile_characters():
+    system, _ = _prompt(build_grid_prompt)
+    assert "quotation" in system.lower() or "quote" in system.lower()

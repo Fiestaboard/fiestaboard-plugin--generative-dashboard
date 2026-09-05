@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -47,12 +47,13 @@
       "output_mode": {
         "type": "string",
         "title": "Output Mode",
-        "description": "grid lays stats out in tiles; prose writes a short sentence about what changed.",
+        "description": "auto lets the AI pick the right form for the moment \u2014 a grid of stats most of the time, a sentence when one story deserves it. Set grid or prose to lock the form.",
         "enum": [
+          "auto",
           "grid",
           "prose"
         ],
-        "default": "grid"
+        "default": "auto"
       },
       "temperature": {
         "type": "number",

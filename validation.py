@@ -56,6 +56,14 @@ def infer_affixes(description: str) -> tuple[str, str]:
     return "", ""
 
 
+# Enough room for genuine reasoning; enough of a cap that the log stays sane.
+_MAX_THINKING = 600
+
+
+def _thinking(data: dict) -> str:
+    return " ".join(str(data.get("thinking") or "").split())[:_MAX_THINKING]
+
+
 class ValidationError(Exception):
     """The model's answer cannot be shown, and should be retried or dropped."""
 
@@ -67,7 +75,8 @@ class GridResult:
     banner: str
     banner_color: str | None
     subtitle: str
-    layout: str  # "auto" | "list"
+    layout: str
+    thinking: str  # "auto" | "list"
     suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
     prefixes: dict[str, str]  # currency-style prefix per ref, e.g. {"st.p": "$"}
     headline: str
@@ -82,6 +91,7 @@ class ProseResult:
     banner_color: str | None
     reason: str
     log: str
+    thinking: str
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -335,6 +345,7 @@ def validate_grid(
         # The log is prompt context, never board text, so it keeps its case
         # and punctuation.
         log=" ".join(str(data.get("log") or "").split()),
+        thinking=_thinking(data),
     )
 
 
@@ -379,4 +390,35 @@ def validate_prose(
         banner_color=prose_hue if prose_hue in ACCENT_COLORS else None,
         reason=sanitize(str(data.get("reason") or "")),
         log=" ".join(str(data.get("log") or "").split()),
+        thinking=_thinking(data),
+    )
+
+
+def validate_auto(
+    payload: object,
+    *,
+    watchlist: list[str],
+    pinned: list[str],
+    values: dict[str, str],
+    labels: dict[str, str],
+    geo: Geometry,
+    use_color: bool,
+    previous: dict[str, str] | None = None,
+    descriptions: dict[str, str] | None = None,
+) -> "GridResult | ProseResult":
+    """Route an auto-mode reply to whichever validator fits its shape.
+
+    The declared "format" wins; a model that forgets it is judged by what it
+    actually sent — text is prose, tiles are a grid.
+    """
+    data = _as_dict(payload)
+    declared = str(data.get("format") or "").lower()
+    is_prose = declared == "prose" or (declared != "grid" and "text" in data)
+    if is_prose:
+        return validate_prose(
+            data, geo=geo, current=values, previous=previous or {}
+        )
+    return validate_grid(
+        data, watchlist=watchlist, pinned=pinned, values=values, labels=labels,
+        geo=geo, use_color=use_color, previous=previous, descriptions=descriptions,
     )

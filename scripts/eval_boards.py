@@ -24,9 +24,11 @@ from plugins.generative_dashboard.layout import geometry, render_grid, wrap_cent
 from plugins.generative_dashboard.llm import (  # noqa: E402
     DashboardLLM,
     LLMError,
+    build_auto_prompt,
     build_grid_prompt,
     build_prose_prompt,
 )
+from plugins.generative_dashboard.validation import validate_auto  # noqa: E402
 from plugins.generative_dashboard.validation import (  # noqa: E402
     ValidationError,
     validate_grid,
@@ -120,6 +122,15 @@ SCENARIOS = [
         "name": "note_board",
         "mode": "grid",
         "geo": (3, 15),
+        "current": dict(WEATHER, **{"air.aqi": "168"}),
+        "previous": dict(WEATHER, **{"air.aqi": "31"}),
+        "identifiers": [],
+        "when": datetime(2026, 9, 3, 14, 30),
+    },
+    {
+        "name": "auto_spike",
+        "mode": "auto",
+        "geo": (6, 22),
         "current": dict(WEATHER, **{"air.aqi": "168"}),
         "previous": dict(WEATHER, **{"air.aqi": "31"}),
         "identifiers": [],
@@ -251,7 +262,24 @@ def run(endpoint, model, runs):
                 ],
             )
             try:
-                if scenario["mode"] == "prose":
+                if scenario["mode"] == "auto":
+                    system, user = build_auto_prompt(use_color=True, **kwargs)
+                    payload = client.complete(system, user)
+                    res = validate_auto(
+                        payload, watchlist=refs, pinned=[],
+                        values=scenario["current"], labels={}, geo=geo,
+                        use_color=True, previous=scenario["previous"],
+                        descriptions=DESC,
+                    )
+                    if hasattr(res, "text"):
+                        checks = judge_prose(res, scenario, geo)
+                        board = wrap_center(res.text, geo.rows, geo.cols)
+                    else:
+                        board = render_grid(res.tiles, geo, banner=res.banner,
+                                            banner_color=res.banner_color,
+                                            subtitle=res.subtitle)
+                        checks = judge_grid(res, board, scenario, geo)
+                elif scenario["mode"] == "prose":
                     system, user = build_prose_prompt(**kwargs)
                     payload = client.complete(system, user)
                     res = validate_prose(payload, geo=geo,
