@@ -176,8 +176,17 @@ def _context_block(
     descriptions: dict[str, str] | None = None,
     use_color: bool = True,
     groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
 ) -> str:
     board = "\n".join(previous_board) if previous_board else "(nothing yet)"
+    rotation_block = ""
+    if rotation:
+        rotation_block = (
+            "ALSO IN THE ROTATION (other pages already on this wall): "
+            + ", ".join(rotation[:20])
+            + ".\nTheir subjects are covered — do not compose a copy of a page "
+            "that already exists. Give this board what the rotation lacks.\n\n"
+        )
     when = describe_now(now) if now is not None else ""
     # The narrowest column is the one that gives up a cell to the gutter.
     # With color on, every column may lose a cell to the status dot, so the
@@ -214,6 +223,7 @@ def _context_block(
     return (
         (f"RIGHT NOW: {when}.\n\n" if when else "")
         + (f"EARLIER TODAY:\n{journal}\n\n" if journal else "")
+        + rotation_block
         + f"BOARD: {geo.rows} rows of {geo.cols} columns.\n\n"
         f"AVAILABLE STATS:\n{described}\n\n"
         f"CURRENTLY ON THE BOARD:\n{board}\n"
@@ -240,6 +250,7 @@ def build_grid_prompt(
     descriptions: dict[str, str] | None = None,
     audience: str = "",
     groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     if use_color:
@@ -363,7 +374,7 @@ def build_grid_prompt(
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
-            descriptions, use_color, groups,
+            descriptions, use_color, groups, rotation,
         ),
     )
 
@@ -383,6 +394,7 @@ def build_prose_prompt(
     descriptions: dict[str, str] | None = None,
     audience: str = "",
     groups: list[dict] | None = None,
+    rotation: list[str] | None = None,
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
@@ -429,6 +441,6 @@ def build_prose_prompt(
         _with_extra(system, extra_instructions),
         _context_block(
             geo, refs, labels, notes, current, previous, previous_board, now, journal,
-            descriptions, True, groups,
+            descriptions, True, groups, rotation,
         ),
     )

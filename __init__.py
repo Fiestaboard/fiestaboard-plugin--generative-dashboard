@@ -468,6 +468,7 @@ class GenerativeDashboardPlugin(PluginBase):
         notes = self._notes(config)
         descriptions = catalog.variable_descriptions(watchlist)
         groups = catalog.prompt_groups(watchlist)
+        rotation = catalog.rotation_page_names(self.plugin_id)
         pinned = self._pinned(config)
         use_color = bool(config.get("use_color", True))
         extra = str(config.get("extra_instructions", "") or "")
@@ -483,6 +484,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     current=current, previous=previous, previous_board=previous_board,
                     extra_instructions=extra + suffix, now=local_now(), journal=journal,
                     descriptions=descriptions, audience=audience, groups=groups,
+                    rotation=rotation,
                 )
             else:
                 system, user = build_grid_prompt(
@@ -490,7 +492,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     current=current, previous=previous, previous_board=previous_board,
                     use_color=use_color, extra_instructions=extra + suffix,
                     now=local_now(), journal=journal, descriptions=descriptions,
-                    audience=audience, groups=groups,
+                    audience=audience, groups=groups, rotation=rotation,
                 )
             try:
                 payload = client.complete(system, user)

@@ -413,3 +413,14 @@ def test_stats_are_presented_under_plugin_section_headers():
 def test_without_groups_the_flat_list_still_works():
     _, user = _prompt(build_grid_prompt)
     assert "a.x" in user and "==" not in user.split("AVAILABLE STATS")[1].split("CURRENTLY")[0]
+
+
+def test_the_rotation_context_tells_the_model_what_is_already_covered():
+    _, user = _prompt(build_grid_prompt, rotation=["San Francisco Now", "Stocks"])
+    assert "San Francisco Now" in user
+    assert "ROTATION" in user.upper()
+
+
+def test_no_rotation_means_no_rotation_block():
+    _, user = _prompt(build_grid_prompt)
+    assert "ROTATION" not in user.upper()

@@ -611,3 +611,35 @@ def test_prompt_groups_never_touch_the_template_context(monkeypatch):
     from plugins.generative_dashboard.catalog import prompt_groups
 
     assert prompt_groups(["wx.t"])[0]["plugin"] == "Weather"
+
+
+def test_rotation_page_names_lists_other_pages_but_never_our_own(monkeypatch):
+    import sys
+    from types import ModuleType
+
+    fake = ModuleType("src.pages.storage")
+
+    class FakeStorage:
+        def list_all(self):
+            return [
+                SimpleNamespace(name="San Francisco Now",
+                                model_dump_json=lambda: '{"template": ["{{weather.temp}}"]}'),
+                SimpleNamespace(name="Generative Dashboard (Flagship)",
+                                model_dump_json=lambda: '{"template": ["{{generative_dashboard.rows.0.text}}"]}'),
+                SimpleNamespace(name="Stocks", model_dump_json=lambda: '{"template": []}'),
+            ]
+
+    fake.PageStorage = FakeStorage
+    monkeypatch.setitem(sys.modules, "src.pages.storage", fake)
+    from plugins.generative_dashboard.catalog import rotation_page_names
+
+    assert rotation_page_names("generative_dashboard") == ["San Francisco Now", "Stocks"]
+
+
+def test_rotation_page_names_survive_a_missing_storage(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "src.pages.storage", None)
+    from plugins.generative_dashboard.catalog import rotation_page_names
+
+    assert rotation_page_names("generative_dashboard") == []

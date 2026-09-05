@@ -286,6 +286,36 @@ def prompt_groups(refs: "Sequence[str]") -> list[dict]:
     return sections
 
 
+def rotation_page_names(exclude_plugin_id: str) -> list[str]:
+    """Names of the other pages this wall rotates through.
+
+    Core keeps no history of what the board displayed, but the rotation's
+    page names are stable and say what is already covered — a model that
+    knows a dedicated weather page exists can stop composing one and surface
+    what the rotation lacks. Pages built on this plugin are excluded so the
+    dashboard never treats itself as competition.
+    """
+    try:
+        from src.pages.storage import PageStorage
+
+        pages = PageStorage().list_all()
+    except Exception:
+        return []
+
+    names: list[str] = []
+    for page in pages:
+        try:
+            blob = page.model_dump_json()
+        except Exception:
+            blob = ""
+        if exclude_plugin_id in blob:
+            continue
+        name = str(getattr(page, "name", "") or "").strip()
+        if name:
+            names.append(name)
+    return names[:30]
+
+
 def variable_descriptions(refs: "Sequence[str]") -> dict[str, str]:
     """Manifest descriptions for *refs* — what each number means.
 
