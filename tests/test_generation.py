@@ -218,3 +218,12 @@ def test_the_audience_setting_reaches_the_prompt(plugin):
         _generate(plugin, config)
     system = post.call_args.kwargs["json"]["messages"][0]["content"]
     assert "surfs mornings" in system
+
+
+def test_the_retry_names_the_exact_violation(plugin):
+    config = dict(plugin.config, output_mode="prose")
+    bad = {"text": "EUR AT 8604.", "headline": "", "reason": ""}
+    with patch("requests.post", return_value=_reply(bad)) as post:
+        plugin._generate(GEO, config, ["fx.eur"], {"fx.eur": "0.8604"}, {}, [])
+    retry_system = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
+    assert "8604" in retry_system

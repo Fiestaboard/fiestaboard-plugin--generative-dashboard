@@ -89,11 +89,25 @@ def extract_numbers(text: str) -> list[str]:
 
 
 def allowed_numbers(current: dict[str, str], previous: dict[str, str]) -> set[str]:
-    """Numbers the model is permitted to write: those it was given."""
+    """Numbers the model is permitted to write: those it was given.
+
+    Every decimal also admits its truncations — "335.31" allows "335.3" and
+    "335" — because dropping precision only omits, it invents nothing. A
+    live board froze on this: the model shortened a price the same way on
+    every retry, and the strict check rejected it forever. Rounding up and
+    digit-mangling ("8604" for 0.8604) remain forbidden: those are numbers
+    nobody supplied.
+    """
     allowed: set[str] = set()
     for source in (current, previous):
         for value in source.values():
-            allowed.update(extract_numbers(str(value)))
+            for token in extract_numbers(str(value)):
+                allowed.add(token)
+                if "." in token:
+                    whole, _, frac = token.partition(".")
+                    allowed.add(whole)
+                    for cut in range(1, len(frac)):
+                        allowed.add(f"{whole}.{frac[:cut]}")
     return allowed
 
 
@@ -339,7 +353,10 @@ def validate_prose(
     text = sanitize(raw).strip()
     # Sentences the model runs together ("-1.11%.SUNNY") wrap as one long
     # word and shred the layout; restore the space it owed us.
-    text = re.sub(r"([.!?])(?=[A-Z0-9])", r"\1 ", text)
+    # Letters only: a period before a digit is a decimal point, and adding
+    # a space there once split 335.31 into fragments this very validator
+    # then rejected.
+    text = re.sub(r"([.!?])(?=[A-Z])", r"\1 ", text)
     if not text:
         raise ValidationError("Text was empty after removing unrenderable characters")
 

@@ -449,3 +449,51 @@ def test_prose_gets_spaces_after_sentence_punctuation():
     )
     assert ".K" not in result.text and ".N" not in result.text
     assert "168. KEEP" in result.text
+
+
+def test_shortening_a_decimal_is_honest_editing():
+    # Gemma wrote "GOOG AT 335" for a 335.31 price — twice, deterministically
+    # — and the strict check froze a live board on its fallback forever.
+    # Dropping decimal places only omits precision; it invents nothing.
+    result = validate_prose(
+        {"text": "GOOG IS AT 335 TONIGHT."},
+        geo=GEO, current={"st.p": "$335.31"}, previous={},
+    )
+    assert "335" in result.text
+
+
+def test_a_shorter_decimal_prefix_also_passes():
+    result = validate_prose(
+        {"text": "EUR SITS AT 0.86."},
+        geo=GEO, current={"fx.eur": "0.8604"}, previous={},
+    )
+    assert "0.86" in result.text
+
+
+def test_dropping_a_leading_zero_is_still_a_different_number():
+    # 8604 is not 0.8604; mangled digits stay rejected.
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": "EUR AT 8604."},
+            geo=GEO, current={"fx.eur": "0.8604"}, previous={},
+        )
+
+
+def test_rounding_up_is_still_computing():
+    with pytest.raises(ValidationError):
+        validate_prose(
+            {"text": "GOOG NEAR 335.4."},
+            geo=GEO, current={"st.p": "$335.31"}, previous={},
+        )
+
+
+def test_the_sentence_space_fix_never_splits_a_decimal():
+    # The 1.19.1 regex turned "$335.31" into "$335. 31", and the validator
+    # then rejected the fragments the regex itself created — the actual
+    # mechanism behind the frozen board.
+    result = validate_prose(
+        {"text": "GOOG IS $335.31.EUR AT 0.8604."},
+        geo=GEO, current={"st.p": "$335.31", "fx.eur": "0.8604"}, previous={},
+    )
+    assert "$335.31. EUR" in result.text
+    assert "0.8604" in result.text

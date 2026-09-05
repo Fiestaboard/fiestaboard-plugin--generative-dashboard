@@ -505,9 +505,12 @@ class GenerativeDashboardPlugin(PluginBase):
         extra = str(config.get("extra_instructions", "") or "")
         audience = str(config.get("audience", "") or "")
 
+        rejection = ""
         for attempt in range(2):
             suffix = "" if attempt == 0 else (
-                "\n\nYour previous reply was rejected. Follow the rules exactly."
+                "\n\nYour previous reply was rejected: "
+                + (rejection or "it broke the rules")
+                + ". Fix exactly that and change nothing else."
             )
             if mode == "prose":
                 system, user = build_prose_prompt(
@@ -565,6 +568,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     reason=grid.reason, log=grid.log,
                 )
             except ValidationError as exc:
+                rejection = str(exc)
                 logger.warning(
                     "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc
                 )
