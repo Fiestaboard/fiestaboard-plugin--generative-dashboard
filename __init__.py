@@ -56,6 +56,7 @@ from .validation import (
     apply_prefix,
     apply_suffix,
     render_prose,
+    resolve_color_rule,
     validate_auto,
     validate_grid,
     validate_prose,
@@ -285,7 +286,7 @@ class GenerativeDashboardPlugin(PluginBase):
             tiles = [
                 Tile(label=t.label,
                      value=apply_prefix(apply_suffix(values.get(t.ref, ""), t.suffix), t.prefix),
-                     color=t.color)
+                     color=resolve_color_rule(t.color, values))
                 for t in outcome.tiles if t.ref in values
             ]
             return render_grid(tiles, geo, banner=outcome.banner,
@@ -461,7 +462,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     value=apply_prefix(
                         apply_suffix(values[spec.ref], spec.suffix), spec.prefix
                     ),
-                    color=spec.color,
+                    color=resolve_color_rule(spec.color, values),
                 )
                 for spec in specs
                 if spec.ref in values
@@ -710,7 +711,10 @@ class GenerativeDashboardPlugin(PluginBase):
 
                 specs = [
                     TileSpec(
-                        ref=ref, label=tile.label, color=tile.color,
+                        ref=ref, label=tile.label,
+                        # The rule travels with the spec so the light stays
+                        # live between re-layouts; a bare hue rides as-is.
+                        color=grid.color_rules.get(ref, tile.color),
                         suffix=grid.suffixes.get(ref, ""),
                         prefix=grid.prefixes.get(ref, ""),
                     )

@@ -694,3 +694,52 @@ def test_expression_overuse_is_capped():
     with pytest.raises(ValidationError) as excinfo:
         validate_prose({"text": blocks}, geo=GEO, current={"a.b": "2"}, previous={})
     assert "expression" in str(excinfo.value).lower()
+
+
+def test_a_tile_color_may_be_a_live_rule_over_ranges():
+    from plugins.generative_dashboard.validation import resolve_color_rule
+
+    rule = 'IF(air.aqi > 100, "red", IF(air.aqi > 50, "yellow", "green"))'
+    payload = {"tiles": [{"label": "AQI", "variable": "air.aqi", "color": rule}]}
+    result = _validate(payload)
+    assert result.color_rules["air.aqi"] == rule
+    assert result.tiles[0].color == "red"  # test-run against aqi=168 now
+    # ...and the light flips live as the value moves, no model call needed.
+    assert resolve_color_rule(rule, {"air.aqi": "62"}) == "yellow"
+    assert resolve_color_rule(rule, {"air.aqi": "12"}) == "green"
+
+
+def test_a_plain_hue_still_works_as_before():
+    payload = {"tiles": [{"label": "AQI", "variable": "air.aqi", "color": "red"}]}
+    result = _validate(payload)
+    assert result.tiles[0].color == "red"
+    assert result.color_rules == {}
+
+
+def test_a_color_rule_that_does_not_compile_is_rejected_by_name():
+    payload = {"tiles": [{"label": "AQI", "variable": "air.aqi",
+                          "color": "NOPE(air.aqi)"}]}
+    with pytest.raises(ValidationError) as excinfo:
+        _validate(payload)
+    assert "NOPE" in str(excinfo.value)
+
+
+def test_a_color_rule_must_yield_a_hue_or_nothing():
+    payload = {"tiles": [{"label": "AQI", "variable": "air.aqi",
+                          "color": 'IF(air.aqi > 0, "chartreuse", "red")'}]}
+    with pytest.raises(ValidationError) as excinfo:
+        _validate(payload)
+    assert "chartreuse" in str(excinfo.value)
+
+
+def test_a_rule_yielding_empty_means_no_light():
+    from plugins.generative_dashboard.validation import resolve_color_rule
+
+    rule = 'IF(air.aqi > 100, "red", "")'
+    assert resolve_color_rule(rule, {"air.aqi": "12"}) is None
+
+
+def test_a_rule_that_errors_at_render_fails_dark_not_wrong():
+    from plugins.generative_dashboard.validation import resolve_color_rule
+
+    assert resolve_color_rule('IF(gone.ref > 1, "red", "green")', {}) is None

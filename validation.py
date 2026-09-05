@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from .catalog import default_label
-from .charset import ACCENT_COLORS, cell_width, sanitize, truncate
+from .charset import ACCENT_COLORS, VALID_COLORS, cell_width, sanitize, truncate
 from .layout import Geometry, Tile, fits
 
 # A run of digits with internal separators: 42, 94,120, 1.25
@@ -120,8 +120,9 @@ class GridResult:
     banner: str
     banner_color: str | None
     subtitle: str
-    layout: str
-    thinking: str  # "auto" | "list"
+    layout: str  # "auto" | "list"
+    thinking: str
+    color_rules: dict[str, str]  # live color expression per ref
     suffixes: dict[str, str]  # unit per ref, e.g. {"wx.temp": "F"}
     prefixes: dict[str, str]  # currency-style prefix per ref, e.g. {"st.p": "$"}
     headline: str
@@ -234,6 +235,28 @@ def render_prose(template: str, values: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(_fill, _evaluate_expressions(template, values))
 
 
+def resolve_color_rule(rule: str | None, values: dict[str, str]) -> str | None:
+    """A tile's color, live: a bare hue passes through, a rule re-evaluates.
+
+    The model encodes its judgment of a stat's ranges once — IF(aqi > 100,
+    "red", "green") — and the light then flips with the value between
+    re-layouts, no model call involved. A rule that errors at render fails
+    dark rather than wrong.
+    """
+    if not rule:
+        return None
+    lowered = rule.strip().lower()
+    if lowered in ACCENT_COLORS:
+        return lowered
+    try:
+        from src.templates.expressions import evaluate
+
+        result = evaluate(rule, _expr_context(values)).strip().lower()
+    except Exception:
+        return None
+    return result if result in ACCENT_COLORS else None
+
+
 def _as_dict(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise ValidationError("Response was not a JSON object")
@@ -284,13 +307,49 @@ def validate_grid(
     seen: set[str] = set()
     suffixes: dict[str, str] = {}
     prefixes: dict[str, str] = {}
+    color_rules: dict[str, str] = {}
     for entry in raw_tiles:
         if not isinstance(entry, dict):
             continue
         ref = str(entry.get("variable") or "")
         if ref not in watched or ref in seen or ref not in values:
             continue
-        color = str(entry.get("color") or "").lower()
+        color_raw = str(entry.get("color") or "").strip()
+        color = color_raw.lower()
+        if color in VALID_COLORS and color not in ACCENT_COLORS:
+            # A real color that is not an accent (white, black): silently
+            # dropped, as ever — background tones are not signals.
+            color = ""
+        elif color_raw and color not in ACCENT_COLORS and not (
+            "(" in color_raw or "<" in color_raw or ">" in color_raw
+            or "=" in color_raw
+        ):
+            # A bare unknown word is a hallucinated hue, not a formula:
+            # dropped quietly rather than sinking the whole composition.
+            color = ""
+        elif color_raw and color not in ACCENT_COLORS:
+            # Structured, so it is a rule. Compile it, test-run it, and demand a
+            # hue (or empty for no light) before the board accepts it.
+            try:
+                from src.templates.expressions import evaluate, validate_expression
+            except Exception as exc:
+                raise ValidationError("Color rules are unavailable here") from exc
+            issues = validate_expression(
+                color_raw, known_sources={r.partition(".")[0] for r in values}
+            )
+            if issues:
+                detail = "; ".join(i.message for i in issues)
+                raise ValidationError(
+                    f"Color rule for {ref} does not compile: {detail}"
+                )
+            outcome = evaluate(color_raw, _expr_context(values)).strip().lower()
+            if outcome and outcome not in ACCENT_COLORS:
+                raise ValidationError(
+                    f"Color rule for {ref} must yield one of "
+                    f"{', '.join(ACCENT_COLORS)} or empty, got '{outcome}'"
+                )
+            color_rules[ref] = color_raw
+            color = outcome
         label_text = (
             labels.get(ref)
             or sanitize(str(entry.get("label") or ""))
@@ -401,6 +460,7 @@ def validate_grid(
         layout=layout,
         suffixes=suffixes,
         prefixes=prefixes,
+        color_rules=color_rules,
         headline=sanitize(str(data.get("headline") or "")),
         reason=sanitize(str(data.get("reason") or "")),
         # The log is prompt context, never board text, so it keeps its case

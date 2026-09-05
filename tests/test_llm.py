@@ -480,3 +480,9 @@ def test_prose_rules_carry_the_generated_function_reference():
     # Names come straight from core's registry, so the list can never drift.
     assert "PADLEFT" in system and "FIXED" in system and "COLOR" in system
     assert "earn" in system.lower() or "sparingly" in system.lower()
+
+
+def test_grid_color_guidance_teaches_range_rules():
+    system, _ = _prompt(build_grid_prompt, use_color=True)
+    assert 'IF(' in system and '\\"yellow\\"' in system
+    assert "range" in system.lower() or "rule" in system.lower()

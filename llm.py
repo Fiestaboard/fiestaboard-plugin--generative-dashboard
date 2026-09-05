@@ -304,6 +304,15 @@ def _grid_rules(geo: Geometry, use_color: bool) -> str:
             "reads as unfinished, so color every stat whose level genuinely "
             "reads, up to five. Leave the truly level-less stats plain; a "
             "board where every single tile is colored still says nothing.\n\n"
+            'Better still, make "color" a live RULE over the ranges you judge '
+            "reasonable for that stat — you know what a UV of 8 or an AQI of "
+            "160 means, so encode it: "
+            '"color": "IF(air.aqi > 100, \\"red\\", IF(air.aqi > 50, '
+            '\\"yellow\\", \\"green\\"))". The rule is compiled and '
+            "test-run before the board accepts it, then re-evaluates live on "
+            "every render, so the light changes the moment the value crosses "
+            "a threshold — between your re-layouts, with no work from you. "
+            "It must yield one of the color names, or empty for no light.\n\n"
             'Set "banner_color" to color the title itself, which is where color '
             "reads best of all. Valid colors: "
             f"{', '.join(ACCENT_COLORS)}.\n\n"

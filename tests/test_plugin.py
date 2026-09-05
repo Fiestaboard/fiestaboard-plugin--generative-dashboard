@@ -480,3 +480,13 @@ def test_prose_values_stay_live_between_compositions(plugin, monkeypatch):
     lines = _fetch(plugin).formatted_lines
     assert any("71" in l for l in lines)
     assert not any("{air.aqi}" in l for l in lines)
+
+
+def test_color_rules_flip_the_light_live_between_relayouts(plugin, monkeypatch):
+    _fetch(plugin)
+    rule = 'IF(air.aqi > 100, "red", "green")'
+    plugin._states["flagship"].tiles = [TileSpec("air.aqi", "AQI", rule)]
+    assert any("{green}" in l for l in _fetch(plugin).formatted_lines)  # aqi 68
+    _values(monkeypatch, {"air.aqi": "168", "wx.temp": "61F"})
+    plugin._states["flagship"].last_generated = __import__("time").monotonic()
+    assert any("{red}" in l for l in _fetch(plugin).formatted_lines)
