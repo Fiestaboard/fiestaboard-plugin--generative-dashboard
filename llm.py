@@ -8,12 +8,13 @@ letting the model infer them.
 import json
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime
 
 import requests
 
 from .charset import ACCENT_COLORS
-from .layout import Geometry, column_inner
+from .layout import Geometry, Tile, column_inner, ledger_cell_width, render_grid
 from .when import describe_now
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,30 @@ _CHARSET_RULES = (
     "It has no lowercase, no arrows, no pipes, no asterisks, no brackets, and "
     "no degree sign. Never use them."
 )
+
+
+# Roughly what one tile costs in the reply's JSON, and what the rest of it
+# costs: the mandated leading "thinking", plus banner, subtitle, headline,
+# reason and log. The floor and ceiling keep a Note from being starved and a
+# panel from being handed an open cheque.
+_TOKENS_PER_TILE = 30
+_FIXED_REPLY_TOKENS = 600
+_MIN_REPLY_TOKENS = 1024
+_MAX_REPLY_TOKENS = 16384
+
+
+def completion_budget(geo: Geometry) -> int:
+    """Completion tokens to allow for one reply, scaled to the board's area.
+
+    Sending no ``max_tokens`` leaves the ceiling to the server, and a modest
+    server default truncates a panel-sized reply mid-object. The truncated
+    JSON raises a *retryable* :class:`LLMError`, the one stricter retry
+    truncates identically, and the board settles on ``degraded="no_llm"``
+    for as long as it is that size — a failure that never appears on a
+    Flagship, whose reply is a tenth the length.
+    """
+    raw = _FIXED_REPLY_TOKENS + _TOKENS_PER_TILE * max(1, geo.tile_budget)
+    return max(_MIN_REPLY_TOKENS, min(_MAX_REPLY_TOKENS, raw))
 
 
 class LLMError(Exception):
@@ -64,12 +89,16 @@ class DashboardLLM:
         # render path, and a shared local model under load can take a
         # while. A timeout costs a whole cycle; patience costs nothing.
         timeout: int = 90,
+        # None means "whatever the server decides", which is only safe for a
+        # short reply. Callers with a board in hand pass completion_budget().
+        max_tokens: int | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
         self.timeout = timeout
+        self.max_tokens = max_tokens
 
     def complete(self, system: str, user: str) -> dict:
         """Send one prompt pair and return the parsed JSON object."""
@@ -88,6 +117,7 @@ class DashboardLLM:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
+                    **({"max_tokens": self.max_tokens} if self.max_tokens else {}),
                 },
                 timeout=self.timeout,
             )
@@ -147,7 +177,7 @@ def describe_variables(
     current: dict[str, str],
     previous: dict[str, str],
     label_budget: int | None = None,
-    wide_budget: int | None = None,
+    wide_budget: "Callable[[str], int] | None" = None,
     descriptions: dict[str, str] | None = None,
 ) -> str:
     """One line per variable: name, label, note, what it did, and how much
@@ -164,11 +194,11 @@ def describe_variables(
         parts = [ref, f'label="{labels.get(ref, "")}"', f'now="{current[ref]}"']
         if label_budget is not None:
             width = len(str(current[ref]))
-            # A value too wide for a column is given the whole row, so its
-            # label has the board's full width to work with.
+            # A value too wide for one column is given a ledger cell, which
+            # spans several, so its label has that cell's width to work with.
             budget = label_budget
             if wide_budget is not None and width > label_budget - 4:
-                budget = wide_budget
+                budget = wide_budget(str(current[ref]))
             parts.append(f"label_max={max(0, budget - width - 1)}")
         if ref in previous and previous[ref] != current[ref]:
             parts.append(f'was="{previous[ref]}"')
@@ -232,7 +262,11 @@ def _context_block(
         return describe_variables(
             subset, labels, notes, current, previous,
             label_budget=column_inner(geo) - (1 if use_color else 0),
-            wide_budget=geo.cols if geo.tile_columns > 1 else None,
+            wide_budget=(
+                (lambda value: ledger_cell_width(value, geo))
+                if geo.tile_columns > 1
+                else None
+            ),
             descriptions=descriptions,
         )
 
@@ -292,7 +326,70 @@ def _grid_schema(use_color: bool) -> str:
     )
 
 
-def _grid_rules(geo: Geometry, use_color: bool) -> str:
+# Worked examples are laid out by the real renderer at the real board size,
+# so an example can never teach a shape the board does not have. Past this
+# many rows one is cut short: it exists to show the shape, and a 24-row
+# transcript costs far more prompt than it teaches.
+_EXAMPLE_ROWS = 6
+
+_PAGE_SAMPLE: tuple[tuple[str, str, str | None], ...] = (
+    ("NOW", "62F", "green"), ("RAIN", "87%", "blue"),
+    ("LIKE", "61F", "green"), ("WIND", "7.2MPH", "green"),
+    ("HIGH", "67F", "yellow"), ("UV", "0.1", "green"),
+    ("LOW", "59F", "blue"), ("SET", "7:36 PM", None),
+    ("HUMID", "88%", "green"), ("AQI", "53", "yellow"),
+    ("MOON", "31%", None), ("VIS", "6.2MI", "green"),
+    ("FOG", "CLEAR", "green"), ("PRES", "30.1", "green"),
+)
+
+_ALERT_SAMPLE: tuple[tuple[str, str, str | None], ...] = (
+    ("AQI", "168", "red"), ("PM25", "89", "red"),
+    ("NOW", "62F", "green"), ("WIND", "9.6MPH", "green"),
+)
+
+
+def _example_board(
+    geo: Geometry,
+    banner: str,
+    subtitle: str,
+    hue: str,
+    samples: tuple[tuple[str, str, str | None], ...],
+    use_color: bool,
+) -> str:
+    """One worked example, drawn by the real renderer at the real geometry.
+
+    The examples used to be transcribed 22-cell, six-row boards sent verbatim
+    to every geometry, so a 120-cell panel was shown a Flagship and told to
+    copy it. Generating them means the shape the model is shown is by
+    construction the shape it will get.
+    """
+    tiles = [
+        Tile(label, value, tint if use_color else None)
+        for label, value, tint in samples[: max(1, geo.tile_budget)]
+    ]
+    rendered = [
+        line
+        for line in render_grid(
+            tiles, geo, banner=banner, use_color=use_color,
+            banner_color=hue if use_color else None, subtitle=subtitle,
+        )
+        if line.strip()
+    ]
+    shown = rendered[:_EXAMPLE_ROWS]
+    body = "\n".join("  " + line for line in shown)
+    if len(rendered) > len(shown):
+        body += f"\n  (and {len(rendered) - len(shown)} more rows of the same shape)"
+    elif geo.rows > len(shown):
+        # The sample set is fixed; the board is not. Say where the example
+        # stops so a panel does not read a four-row example as its target.
+        body += (
+            f"\n  (the sample stats run out here — your board has "
+            f"{geo.rows - len(shown)} more row(s), to carry on in this shape)"
+        )
+    return body
+
+
+def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0) -> str:
     if use_color:
         colour_rule = (
             'Set "color" on a tile to show the *level* of that stat: green when '
@@ -325,9 +422,36 @@ def _grid_rules(geo: Geometry, use_color: bool) -> str:
     else:
         colour_rule = ""
 
+    page_example = _example_board(
+        geo, "SAN FRANCISCO", "LIGHT RAIN, 8 AM", "blue", _PAGE_SAMPLE, use_color
+    )
+    alert_example = _example_board(
+        geo, "AIR QUALITY", "KEEP WINDOWS SHUT", "red", _ALERT_SAMPLE, use_color
+    )
+
+    # The board's capacity is only half the budget: the other half is how
+    # many stats actually exist. Promising 240 slots on a 24x120 panel when
+    # the watchlist holds 8 is an instruction the model cannot follow, and
+    # "fill the board, empty rows look broken" then reads as a demand to
+    # invent filler.
+    slots = min(geo.tile_budget, supply) if supply else geo.tile_budget
+    if supply and supply < geo.tile_budget:
+        fill_rule = (
+            f"You have {supply} stat(s) to place on a board that could hold "
+            f"{geo.tile_budget}. Use the ones worth showing and stop there — "
+            "never repeat a stat or invent one to pad the board out. A short, "
+            "well-composed block centred on the board beats a padded one, and "
+            "the rows below it are meant to be empty.\n\n"
+        )
+    else:
+        fill_rule = (
+            "Fill the board. Empty rows look broken, so use the slots you "
+            "have unless there is genuinely nothing else worth showing.\n\n"
+        )
+
     return (
         "You lay out a stats dashboard for a split-flap board.\n\n"
-        f"You may place at most {geo.tile_budget} tiles, arranged in "
+        f"You may place at most {slots} tiles, arranged in "
         f"{geo.tile_columns} column(s) of {geo.tile_width} cells, reading left "
         "to right then down. The most important stat goes first.\n\n"
         "You choose WHICH stats appear, their order, and what they are called. "
@@ -336,11 +460,10 @@ def _grid_rules(geo: Geometry, use_color: bool) -> str:
         "Each stat below carries a label_max: the number of cells its label "
         "may use once its value is placed. Never exceed it — a longer label is "
         "cut off mid-word. Abbreviate to fit: PRESSURE at label_max=4 becomes "
-        "PRES. A stat with a long value is given a whole row to itself, which "
+        "PRES. A stat with a long value is given a wider ledger cell, which "
         "is why some label_max values are generous.\n\n"
         "Skip any stat whose value is a placeholder — UNKNOWN, N/A, NONE, TEST, or an empty reading. Showing them wastes the board.\n\n"
-        "Fill the board. Empty rows look broken, so use the slots you have "
-        "unless there is genuinely nothing else worth showing.\n\n"
+        f"{fill_rule}"
         'A bare number is ambiguous: 62 what? Set "suffix" on a tile to the '
         "unit its desc implies — F, %, MPH, KM, MI, MIN — and \"prefix\" for "
         "currency, so the board shows 62F and $339.08 rather than bare "
@@ -362,28 +485,22 @@ def _grid_rules(geo: Geometry, use_color: bool) -> str:
         "on the price tile gives GOOG $339.08 on one row. Or fold it into "
         "the title. A tile spent on a name with no number is a wasted row.\n\n"
         "Design the board like a made page, not a printout. Pick the pattern "
-        "that fits the moment and fill it completely — on a six-row board use "
-        "all six rows.\n\n"
-        "Rows are grouped by shape for you: short stats pair up two to a row, "
-        "long values each take a full ledger row, and the two kinds never "
-        'interleave. Set "layout": "list" to force every stat onto its own '
-        "ledger row — the right shape for a prices board.\n\n"
+        "that fits the moment and compose it for the space you actually have: "
+        f"{geo.rows} row(s) of {geo.cols} cells.\n\n"
+        "Rows are grouped by shape for you: short stats pair up across the "
+        "row, long values each take a wider ledger cell, and the two kinds "
+        'never interleave. Set "layout": "list" to put every stat in a '
+        "ledger cell — the right shape for a prices board.\n\n"
         "The header already places the board in time, so a date or clock "
         "tile is filler unless time itself is the story.\n\n"
-        "PATTERN PAGE — the everyday themed board. Title, subtitle for the "
-        "context line, then paired stats:\n"
-        "  {blue}{blue} SAN FRANCISCO {blue}{blue}\n"
-        "  {blue} LIGHT RAIN, 8 AM {blue}\n"
-        "  NOW    62F RAIN   87%\n"
-        "  LIKE   61F WIND 7.2MPH\n"
-        "  HIGH  67F UV   0.1{green}\n"
-        "  LOW    59F SET 7:36 PM\n\n"
-        "PATTERN ALERT — when one thing dominates. Title names the problem, "
-        "subtitle says what to do, stats support it:\n"
-        "  {red}{red} AIR QUALITY {red}{red}\n"
-        "  {red} KEEP WINDOWS SHUT {red}\n"
-        "  AQI    168 PM25    89\n"
-        "  NOW    62F WIND 9.6MPH\n\n"
+        "PATTERN PAGE — the everyday themed board, drawn below at YOUR "
+        "board's exact size. Title, subtitle for the context line, then "
+        "paired stats:\n"
+        f"{page_example}\n\n"
+        "PATTERN ALERT — when one thing dominates, again at your board's "
+        "size. Title names the problem, subtitle says what to do, stats "
+        "support it:\n"
+        f"{alert_example}\n\n"
         'Set "subtitle" for that second header line. Note the ticker rule at '
         "work: a stock board would be titled GOOG with the price beneath, "
         "never a tile spending itself on the word GOOG.\n\n"
@@ -410,6 +527,16 @@ def _grid_rules(geo: Geometry, use_color: bool) -> str:
     )
 
 
+def _supply(refs: list[str], current: dict[str, str]) -> int:
+    """How many of *refs* have a value this cycle — the real ceiling on tiles.
+
+    ``geo.tile_budget`` is what the board could hold; this is what there is
+    to put in it. The two diverge hard on a panel: 240 slots against a
+    watchlist of 8.
+    """
+    return sum(1 for ref in refs if ref in current)
+
+
 def build_grid_prompt(
     *,
     geo: Geometry,
@@ -431,7 +558,7 @@ def build_grid_prompt(
     """System and user prompts for tile-based composition."""
     system = (
         _audience_block(audience)
-        + _grid_rules(geo, use_color)
+        + _grid_rules(geo, use_color, _supply(refs, current))
         + _THINKING_RULE
         + "Reply with JSON only:\n"
         + _grid_schema(use_color)
@@ -585,7 +712,7 @@ def build_auto_prompt(
         "this board can do; keep the current form unless the moment "
         "genuinely demands the other. Say why in your thinking either way.\n\n"
         + "IF YOU CHOOSE GRID, these rules apply:\n\n"
-        + _grid_rules(geo, use_color)
+        + _grid_rules(geo, use_color, _supply(refs, current))
         + "\nIF YOU CHOOSE PROSE, these rules apply:\n\n"
         + _prose_rules(geo)
         + "\n"

@@ -42,6 +42,14 @@ core's board preview:
 *The same plugin on a 15×3 Note — it composes for whatever board size
 renders it.*
 
+Note arrays are the same story at the other end: every width and height is
+derived from the board core hands the plugin, from a 15×3 Note up to a
+24×120 panel. The grid picks its own column count from the board's width,
+the model is told the board's real size and how many stats actually exist
+to put on it, and the manifest carries `note_array` previews so the gallery
+shows the array shapes too. See `tests/test_conformance.py`, which runs
+core's shared geometry-conformance suite over every supported board.
+
 ## Template Variables
 
 ### Display

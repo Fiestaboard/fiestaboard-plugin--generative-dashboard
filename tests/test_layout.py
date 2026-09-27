@@ -5,6 +5,7 @@ from plugins.generative_dashboard.layout import (
     Tile,
     fits,
     geometry,
+    placed_count,
     render_grid,
     wrap_center,
 )
@@ -395,3 +396,96 @@ def test_list_layout_makes_every_row_a_ledger_row():
     assert len(lines) == 3
     assert all(len(l) == 22 for l in lines)
     assert lines[1] == "VIS" + " " * 14 + "6.2MI"
+
+
+# -- wide and tall boards -------------------------------------------------
+#
+# Everything above is a Flagship or a Note. A FiestaPanel is a note array,
+# which reaches 24 rows by 120 columns, and none of that range had a test:
+# it is exactly where the ledger row spread a label and its value a hundred
+# cells apart.
+
+
+def test_a_full_panel_derives_ten_columns():
+    geo = geometry(24, 120)
+    assert (geo.tile_columns, geo.tile_width, geo.tile_budget) == (10, 12, 240)
+
+
+def test_a_wide_short_array_is_wide_not_tall():
+    geo = geometry(3, 120)
+    assert (geo.tile_columns, geo.rows, geo.tile_budget) == (10, 3, 30)
+
+
+def test_a_panel_renders_exactly_its_rows_and_never_overruns_them():
+    geo = geometry(24, 120)
+    tiles = [Tile(f"STAT{i}", str(i)) for i in range(40)]
+    lines = render_grid(tiles, geo)
+    assert len(lines) == 24
+    assert all(cell_width(line) <= 120 for line in lines)
+
+
+def test_a_ledger_row_does_not_spread_across_a_panel():
+    # The defect: one label/value pair rendered at the board's full width put
+    # the label in cell 1 and the value around cell 115, with a hundred blank
+    # cells between them. A ledger cell is two columns, not the whole wall.
+    geo = geometry(6, 120)
+    lines = _content(render_grid([Tile("GOOG", "$1,339.08")], geo))
+    assert lines[0].startswith("GOOG")
+    assert cell_width(lines[0]) <= 2 * geo.tile_width
+
+
+def test_fewer_tiles_than_columns_still_share_rows_on_a_panel():
+    # Eight tiles on a ten-column board filled no whole row, so every one of
+    # them used to become its own full-width ledger row: eight rows, each
+    # 90% blank.
+    geo = geometry(6, 120)
+    tiles = [Tile(f"S{i}", f"{i}F") for i in range(8)]
+    lines = _content(render_grid(tiles, geo))
+    assert len(lines) == 2
+
+
+def test_a_ledger_section_packs_several_pairs_across_a_wide_board():
+    geo = geometry(6, 120)
+    tiles = [Tile(f"S{i}", f"{i}.5MPH") for i in range(5)]
+    lines = _content(render_grid(tiles, geo, layout="list"))
+    assert len(lines) == 1
+    assert all(f"S{i}" in lines[0] for i in range(5))
+
+
+def test_a_flagship_ledger_row_still_spans_the_whole_flagship():
+    # Two columns IS the whole board at 22 cells, so nothing about the
+    # handmade Flagship shape may change.
+    geo = geometry(6, 22)
+    lines = _content(render_grid([Tile("GOOG", "$339.08")], geo))
+    assert cell_width(lines[0]) == 22
+
+
+def test_a_value_too_wide_for_two_columns_takes_the_columns_it_needs():
+    geo = geometry(6, 120)
+    lines = _content(render_grid([Tile("TOTAL", "1,234,567,890,123,456,789.01")], geo))
+    assert lines[0].endswith("1,234,567,890,123,456,789.01")
+    assert 2 * geo.tile_width < cell_width(lines[0]) <= 120
+
+
+def test_a_tall_narrow_array_grows_rows_not_columns():
+    # 1 note wide by 8 tall: 15x24, narrower than a Flagship and four times
+    # as tall. Every stat gets its own row and all 24 are used.
+    geo = geometry(24, 15)
+    tiles = [Tile(f"S{i}", str(i)) for i in range(30)]
+    lines = _content(render_grid(tiles, geo))
+    assert len(lines) == 24
+    assert all(cell_width(line) <= 15 for line in lines)
+
+
+def test_a_panel_row_reaches_the_boards_right_edge():
+    # The remainder columns are handed to the last cell rather than left
+    # dark, so a full row ends where the board ends.
+    geo = geometry(6, 105)
+    tiles = [Tile(f"S{i}", str(i)) for i in range(geo.tile_columns)]
+    assert cell_width(_content(render_grid(tiles, geo))[0]) == 105
+
+
+def test_placed_count_counts_what_a_panel_actually_shows():
+    geo = geometry(24, 120)
+    tiles = [Tile(f"S{i}", str(i)) for i in range(40)]
+    assert placed_count(tiles, geo) == 40

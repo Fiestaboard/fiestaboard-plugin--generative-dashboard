@@ -14,8 +14,15 @@ from .charset import cell_width, sanitize, truncate
 _MIN_TILE_WIDTH = 11
 
 # Shortest label worth printing. Below this a label is a stub — "D" for DATE
-# tells you nothing — so the tile is given the whole row instead.
+# tells you nothing — so the tile is given more than one column instead.
 _MIN_LABEL = 3
+
+# How many tile columns one ledger cell spans by default. Two is the shape the
+# Flagship established — on a 22-cell board two columns *is* the whole width —
+# and it stays two however wide the board gets. Spanning the full width of a
+# 120-cell panel would put the label in cell 1 and its value in cell 115 with a
+# hundred dead cells between: not a row, but two rows sharing a line.
+_LEDGER_COLUMNS = 2
 
 # Word wrapping wastes ragged-right space, so the advertised prose budget is
 # discounted. The real check is fits(), which actually wraps.
@@ -117,15 +124,78 @@ def render_banner(text: str, color: str | None, cols: int, weight: int = 2) -> s
     return body.center(cols).rstrip()
 
 
-def _pack(tiles: list[Tile], geo: Geometry, layout: str = "auto") -> list[list[Tile]]:
+def ledger_span(tiles: list[Tile], geo: Geometry) -> int:
+    """How many tile columns one ledger cell occupies.
+
+    One span serves the whole ledger section, so its values stay in a single
+    straight column the way a handmade prices page lines its numbers up. It is
+    :data:`_LEDGER_COLUMNS` columns wide by default, widened only when some
+    value genuinely needs the room, and never wider than the board.
+    """
+    if geo.tile_columns <= 1:
+        return 1
+    needed = max(
+        (cell_width(sanitize(t.value)) + _MIN_LABEL + 1 for t in tiles),
+        default=0,
+    )
+    span = max(_LEDGER_COLUMNS, -(-needed // geo.tile_width))
+    return min(geo.tile_columns, span)
+
+
+def _ledger_rows(tiles: list[Tile], geo: Geometry) -> list[tuple[int, list[Tile]]]:
+    """Chunk ledger tiles into rows of as many ledger cells as the board holds.
+
+    On a Flagship a ledger row holds exactly one pair, because two columns is
+    the whole board. On a wide panel the same rule puts five or six pairs side
+    by side instead of stranding one pair per row — same shape, more of it.
+    """
+    if not tiles:
+        return []
+    span = ledger_span(tiles, geo)
+    per_row = max(1, geo.tile_columns // span)
+    return [(span, tiles[i : i + per_row]) for i in range(0, len(tiles), per_row)]
+
+
+def ledger_cell_width(value: str, geo: Geometry) -> int:
+    """Cells a ledger row would give one label/value pair carrying *value*.
+
+    The prompt advertises label room from this, so it has to be the number
+    the renderer will actually use. Advertising the board's full width on a
+    120-cell panel promised a label a hundred cells that the two-column
+    ledger cell never had.
+    """
+    span = ledger_span([Tile(label="", value=value)], geo)
+    return _cell_widths(span, 1, geo)[0]
+
+
+def _cell_widths(span: int, count: int, geo: Geometry) -> list[int]:
+    """Exact cell widths for a row of *count* cells, each *span* columns wide.
+
+    Every cell but the last gives up one cell as a gutter. A row that reaches
+    the board's last column hands the remainder to its final cell, so the row
+    ends on the right edge instead of leaving the columns that did not divide
+    evenly dark. A partial row stays left-packed on the column grid.
+    """
+    widths = [span * geo.tile_width - 1] * count
+    if count and span * count >= geo.tile_columns:
+        widths[-1] = geo.cols - sum(widths[:-1]) - (count - 1)
+    return widths
+
+
+def _pack(
+    tiles: list[Tile], geo: Geometry, layout: str = "auto"
+) -> list[tuple[int, list[Tile]]]:
     """Group tiles into rows with a single rhythm.
 
     A human never alternates row shapes mid-board: the handmade weather page
     is all pairs, the handmade stocks page is all ledger rows. So rows of the
     same shape are gathered into sections — the model's first tile decides
     which section leads — and ``layout="list"`` forces the all-ledger shape
-    outright. An odd narrow tile joins the ledger section rather than leaving
-    a half-empty row anywhere.
+    outright. Narrow tiles left over from the last pair row join the ledger
+    section rather than leaving a half-empty row anywhere.
+
+    Each row is returned as ``(span, tiles)``: how many tile columns one cell
+    of that row occupies, and the tiles in it.
     """
     usable = [
         t for t in tiles
@@ -133,18 +203,20 @@ def _pack(tiles: list[Tile], geo: Geometry, layout: str = "auto") -> list[list[T
     ]
     if not usable:
         return []
-    if geo.tile_columns == 1 or layout == "list":
-        return [[t] for t in usable]
+    if geo.tile_columns == 1:
+        return [(1, [t]) for t in usable]
+    if layout == "list":
+        return _ledger_rows(usable, geo)
 
     wide = [t for t in usable if needs_full_row(t.value, geo)]
     narrow = [t for t in usable if not needs_full_row(t.value, geo)]
 
+    whole = len(narrow) - len(narrow) % geo.tile_columns
     pairs = [
-        narrow[i : i + geo.tile_columns]
-        for i in range(0, len(narrow) - len(narrow) % geo.tile_columns, geo.tile_columns)
+        (1, narrow[i : i + geo.tile_columns])
+        for i in range(0, whole, geo.tile_columns)
     ]
-    leftover = narrow[len(narrow) - len(narrow) % geo.tile_columns :]
-    ledger = [[t] for t in wide] + [[t] for t in leftover]
+    ledger = _ledger_rows(wide + narrow[whole:], geo)
 
     if wide and needs_full_row(usable[0].value, geo):
         return ledger + pairs
@@ -157,7 +229,7 @@ def placed_count(
 ) -> int:
     """How many of *tiles* actually reach the board."""
     rows = geo.rows - (1 if banner else 0) - (1 if banner and subtitle else 0)
-    return sum(len(row) for row in _pack(tiles, geo, layout)[: max(0, rows)])
+    return sum(len(row) for _, row in _pack(tiles, geo, layout)[: max(0, rows)])
 
 
 def render_grid(
@@ -183,22 +255,12 @@ def render_grid(
 
     grid_rows = geo.rows - len(lines)
     packed = _pack(tiles, geo, layout)[: max(0, grid_rows)]
-    reserve_dot = use_color and any(t.color for row in packed for t in row)
+    reserve_dot = use_color and any(t.color for _, row in packed for t in row)
 
-    for row in packed:
-        if len(row) == 1 and geo.tile_columns > 1:
-            # Ledger row: label left, value right, spanning the board.
-            lines.append(_render_tile(row[0], geo.cols, use_color, reserve_dot).rstrip())
-            continue
+    for span, row in packed:
         cells = [
-            # Every column but the last gives up one cell as a gutter.
-            _render_tile(
-                tile,
-                geo.tile_width if column == geo.tile_columns - 1 else geo.tile_width - 1,
-                use_color,
-                reserve_dot,
-            )
-            for column, tile in enumerate(row)
+            _render_tile(tile, width, use_color, reserve_dot)
+            for tile, width in zip(row, _cell_widths(span, len(row), geo), strict=True)
         ]
         lines.append(" ".join(cells).rstrip())
 
