@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.26.3",
+  "version": "1.26.4",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -365,6 +365,31 @@
         " {blue} NIGHT WALK {blue}",
         "NOW        58F{green}",
         "AQI         53{yellow}"
+      ]
+    },
+    {
+      "label": "Note Array (2 wide, 2 tall)",
+      "device_type": "note_array",
+      "notes_wide": 2,
+      "notes_tall": 2,
+      "rows": [
+        "       {blue}{blue} NIGHT WALK {blue}{blue}",
+        "  {blue} CLEAR AND BRISK IN SF {blue}",
+        "NOW       58F{green} LIKE       53F{green}",
+        "WI     9.6MPH{green} FOG      CLEAR{green}",
+        "HUMID     88%{green} AQI         53{yellow}",
+        "MOON      31%  VIS      6.2MI"
+      ]
+    },
+    {
+      "label": "Note Array (4 wide, 1 tall)",
+      "device_type": "note_array",
+      "notes_wide": 4,
+      "notes_tall": 1,
+      "rows": [
+        "                      {blue}{blue} NIGHT WALK {blue}{blue}",
+        "NOW    58F{green} LIKE   53F{green} WI  9.6MPH{green} HUMID  88%{green} AQI      53{yellow}",
+        "FOG  CLEAR{green} MOON   31%  VIS  6.2MI  UV     0.1{green} SET 7:36 PM"
       ]
     }
   ],

@@ -4,6 +4,7 @@ import json
 import pathlib
 
 import pytest
+from src.devices import NOTE_COLS, NOTE_ROWS
 from src.plugins.manifest import load_manifest, settings_schema_ui_warnings
 
 MANIFEST_PATH = pathlib.Path(__file__).resolve().parent.parent / "manifest.json"
@@ -128,14 +129,29 @@ def test_teaser_fits_the_narrowest_board(raw):
     assert _tiles(raw["teaser"]) <= 15
 
 
-def test_previews_cover_both_board_shapes(raw):
-    assert {p["device_type"] for p in raw["previews"]} >= {"flagship", "note"}
+def test_previews_cover_every_board_shape(raw):
+    # note_array included: a FiestaPanel is a note array, and a gallery that
+    # only shows a Flagship and a Note says nothing about how the plugin
+    # looks on the board people hang on a wall.
+    assert {p["device_type"] for p in raw["previews"]} >= {
+        "flagship", "note", "note_array",
+    }
+
+
+def _preview_board(preview):
+    """The (cols, rows) a preview entry claims to be drawn for."""
+    if preview["device_type"] == "note_array":
+        wide, tall = preview["notes_wide"], preview["notes_tall"]
+        # The preview cap is deliberately below the hardware's 8 per axis:
+        # an 8x8 preview is 2,880 tiles of literal text in a manifest.
+        assert 1 <= wide <= 4 and 1 <= tall <= 4, preview
+        return wide * NOTE_COLS, tall * NOTE_ROWS
+    return {"flagship": (22, 6), "note": (NOTE_COLS, NOTE_ROWS)}[preview["device_type"]]
 
 
 def test_preview_rows_fit_their_board(raw):
-    limits = {"flagship": (22, 6), "note": (15, 3)}
     for preview in raw["previews"]:
-        cols, rows = limits[preview["device_type"]]
+        cols, rows = _preview_board(preview)
         assert len(preview["rows"]) <= rows, f"{preview['device_type']} has too many rows"
         for line in preview["rows"]:
             assert _tiles(line) <= cols, f"{line!r} is {_tiles(line)} tiles, max {cols}"

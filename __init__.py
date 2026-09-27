@@ -50,6 +50,7 @@ from .llm import (
     build_auto_prompt,
     build_grid_prompt,
     build_prose_prompt,
+    completion_budget,
 )
 from .validation import (
     ValidationError,
@@ -275,9 +276,14 @@ class GenerativeDashboardPlugin(PluginBase):
         )
         if chosen:
             return chosen
-        # Judged against the whole board: a long value gets a full row to
-        # itself, so a single column's width is no longer the limit.
-        return catalog.eligible_refs(self.plugin_id, DEFAULT_BOARD_COLS)
+        # Judged against THIS board's width, not the Flagship's. A variable
+        # declaring 40 cells is unusable on a Note and perfectly placeable on
+        # a 120-cell panel, and filtering the pool by a fixed 22 gets both
+        # ends wrong: it hid every wide variable from panels, and admitted
+        # values a Note then dropped at layout time, leaving rows blank.
+        # A long value gets more than one column to itself, so a single
+        # column's width is not the limit either.
+        return catalog.eligible_refs(self.plugin_id, self._geometry().cols)
 
     def _labels(self, config: dict[str, Any]) -> dict[str, str]:
         raw = config.get("labels") or {}
@@ -540,9 +546,17 @@ class GenerativeDashboardPlugin(PluginBase):
         )
 
     def get_formatted_display(self) -> list[str] | None:
+        """The board's lines, as ``list[str]``.
+
+        Core has no caller for this hook today, but it is the documented
+        contract (``src/plugins/base.py``) and the conformance suite holds
+        every override to it. It used to hand back ``data["rows"]``, which is
+        ``list[dict]`` — the array-variable shape core's template layer wants,
+        and the wrong type here.
+        """
         result = self.get_data(self.board)
-        if result.available and result.data:
-            return result.data.get("rows")
+        if result.available and result.formatted_lines:
+            return list(result.formatted_lines)
         return None
 
     # -- generation, off the render path ----------------------------------
@@ -642,6 +656,7 @@ class GenerativeDashboardPlugin(PluginBase):
             api_key=str(config.get("api_key", "")),
             model=str(config.get("model", "gpt-4o-mini")),
             temperature=float(config.get("temperature", 0.3) or 0.3),
+            max_tokens=completion_budget(geo),
         )
         mode = config.get("output_mode", "grid")
         labels = self._labels(config)

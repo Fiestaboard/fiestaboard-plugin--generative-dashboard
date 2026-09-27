@@ -505,3 +505,79 @@ def test_color_rules_flip_the_light_live_between_relayouts(plugin, monkeypatch):
     _values(monkeypatch, {"air.aqi": "168", "wx.temp": "61F"})
     plugin._states["flagship"].last_generated = __import__("time").monotonic()
     assert any("{red}" in l for l in _fetch(plugin).formatted_lines)
+
+
+# -- boards that are not a Flagship ---------------------------------------
+
+PANEL = BoardContext("note_array", rows=24, cols=120)
+
+
+def test_the_candidate_pool_is_judged_against_this_boards_width(plugin, monkeypatch):
+    # The live path filtered the pool by a hardcoded 22. On a 120-cell panel
+    # that permanently hid every variable declaring 23 cells or more; on a
+    # 15-cell Note it admitted values the layout then dropped, leaving rows
+    # blank.
+    widths = []
+
+    def record(exclude, max_value_width):
+        widths.append(max_value_width)
+        return []
+
+    monkeypatch.setattr(catalog, "eligible_refs", record)
+    for board in (FLAGSHIP, NOTE, PANEL):
+        with plugin._bound_board(board):
+            plugin._watchlist({})
+    assert widths == [22, 15, 120]
+
+
+def test_the_pool_falls_back_to_a_flagship_when_no_board_is_bound(plugin, monkeypatch):
+    widths = []
+    monkeypatch.setattr(
+        catalog, "eligible_refs",
+        lambda exclude, max_value_width: widths.append(max_value_width) or [],
+    )
+    plugin._watchlist({})
+    assert widths == [22]
+
+
+def test_a_panel_renders_its_full_height(plugin):
+    assert len(_fetch(plugin, PANEL).formatted_lines) == 24
+
+
+def test_a_panel_keeps_its_own_state_apart_from_a_flagship(plugin):
+    _fetch(plugin, FLAGSHIP)
+    _fetch(plugin, PANEL)
+    assert set(plugin._states) == {"flagship", "note_array:120x24"}
+
+
+def test_the_formatted_display_hook_returns_strings(plugin):
+    with plugin._bound_board(PANEL):
+        lines = plugin.get_formatted_display()
+    assert lines and all(isinstance(line, str) for line in lines)
+    assert len(lines) == 24
+
+
+def test_the_worker_is_given_a_reply_budget_for_the_board(plugin, monkeypatch):
+    from plugins.generative_dashboard.llm import completion_budget
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+        def complete(self, system, user):
+            raise RuntimeError("no network in tests")
+
+    monkeypatch.setattr(
+        "plugins.generative_dashboard.DashboardLLM", FakeClient
+    )
+    geo = plugin._geometry()
+    with plugin._bound_board(PANEL):
+        panel_geo = plugin._geometry()
+        try:
+            plugin._generate(panel_geo, plugin.config, ["air.aqi"], VALUES, {}, [], "", "grid")
+        except RuntimeError:
+            pass
+    assert seen["max_tokens"] == completion_budget(panel_geo)
+    assert seen["max_tokens"] > completion_budget(geo)

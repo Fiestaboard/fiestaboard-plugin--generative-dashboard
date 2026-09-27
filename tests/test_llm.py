@@ -11,6 +11,7 @@ from plugins.generative_dashboard.llm import (
     LLMError,
     build_grid_prompt,
     build_prose_prompt,
+    completion_budget,
     describe_variables,
 )
 
@@ -202,12 +203,12 @@ def test_the_grid_prompt_does_not_offer_white_or_black_as_accents():
     assert "white" not in colours and "black" not in colours
 
 
-def test_label_budget_accounts_for_a_value_that_gets_its_own_row():
-    # A long value is given the full board width, so its label has more room
-    # than the narrow-column arithmetic would suggest.
+def test_label_budget_accounts_for_a_value_that_gets_a_ledger_cell():
+    # A long value is given a ledger cell spanning several columns, so its
+    # label has more room than the narrow-column arithmetic would suggest.
     text = describe_variables(
         ["a.date"], {}, {}, {"a.date": "09/03/26"}, {},
-        label_budget=10, wide_budget=22,
+        label_budget=10, wide_budget=lambda _value: 22,
     )
     assert "label_max=13" in text
 
@@ -486,3 +487,131 @@ def test_grid_color_guidance_teaches_range_rules():
     system, _ = _prompt(build_grid_prompt, use_color=True)
     assert 'IF(' in system and '\\"yellow\\"' in system
     assert "range" in system.lower() or "rule" in system.lower()
+
+
+# -- panels ---------------------------------------------------------------
+#
+# Every prompt test above runs at 22x6. The prompt carried three things that
+# only go wrong at other sizes: a slot count larger than the number of stats
+# that exist, a hardcoded "six-row board", and two worked examples
+# transcribed as 22-cell boards.
+
+PANEL = geometry(24, 120)
+
+
+def _panel_prompt_pair(refs, current, **overrides):
+    kwargs = {
+        "geo": PANEL, "refs": refs, "labels": {}, "notes": {},
+        "current": current, "previous": {}, "previous_board": [],
+        "extra_instructions": "", "use_color": True,
+    }
+    kwargs.update(overrides)
+    return build_grid_prompt(**kwargs)
+
+
+def _panel_prompt(refs, current, **overrides):
+    return _panel_prompt_pair(refs, current, **overrides)[0]
+
+
+def test_the_prompt_never_promises_more_slots_than_there_are_stats():
+    # 24x120 is 240 slots; a watchlist of 8 can never fill them, and the
+    # model asked for 240 either repeats stats or gives up.
+    current = {f"a.v{i}": str(i) for i in range(8)}
+    system = _panel_prompt(list(current), current)
+    assert "at most 8 tiles" in system
+    assert "at most 240 tiles" not in system
+
+
+def test_the_prompt_promises_the_board_when_stats_are_plentiful():
+    current = {f"a.v{i}": str(i) for i in range(300)}
+    system = _panel_prompt(list(current), current)
+    assert "at most 240 tiles" in system
+
+
+def test_a_sparse_panel_is_not_told_to_fill_every_row():
+    current = {f"a.v{i}": str(i) for i in range(8)}
+    system = _panel_prompt(list(current), current)
+    assert "Empty rows look broken" not in system
+    assert "invent one to pad" in system
+
+
+def test_a_board_with_stats_to_spare_is_still_told_to_fill_it():
+    current = {f"a.v{i}": str(i) for i in range(300)}
+    assert "Empty rows look broken" in _panel_prompt(list(current), current)
+
+
+def test_the_prompt_states_the_real_row_count_not_a_hardcoded_six():
+    system = _panel_prompt(["a.x"], {"a.x": "1"})
+    assert "24 row(s) of 120 cells" in system
+    assert "six-row" not in system.lower() and "all six rows" not in system.lower()
+
+
+def test_the_worked_examples_are_drawn_at_the_boards_own_width():
+    from plugins.generative_dashboard.charset import cell_width
+
+    system = _panel_prompt(["a.x"], {"a.x": "1"})
+    example = [
+        line[2:] for line in system.splitlines()
+        if line.startswith("  ") and "{blue}" in line or line.startswith("  NOW")
+    ]
+    assert example, system
+    widest = max(cell_width(line) for line in example)
+    # The transcribed examples were 22 cells wide whatever the board was.
+    assert widest > 22
+    assert all(cell_width(line) <= 120 for line in example)
+
+
+def test_the_worked_examples_fit_a_note():
+    from plugins.generative_dashboard.charset import cell_width
+
+    system = build_grid_prompt(
+        geo=geometry(3, 15), refs=["a.x"], labels={}, notes={},
+        current={"a.x": "1"}, previous={}, previous_board=[],
+        use_color=True, extra_instructions="",
+    )[0]
+    body = system[system.index("PATTERN PAGE") : system.index("PATTERN ALERT")]
+    rows = [line[2:] for line in body.splitlines() if line.startswith("  ")]
+    assert rows and all(cell_width(line) <= 15 for line in rows)
+
+
+def test_a_panel_example_says_how_much_board_is_left():
+    assert "more row(s), to carry on in this shape" in _panel_prompt(
+        ["a.x"], {"a.x": "1"}
+    )
+
+
+# -- completion budget ----------------------------------------------------
+
+
+def test_the_completion_budget_grows_with_the_board():
+    assert completion_budget(PANEL) > completion_budget(GEO)
+    assert completion_budget(PANEL) >= 240 * 20
+
+
+def test_the_completion_budget_has_a_floor_and_a_ceiling():
+    assert completion_budget(geometry(3, 15)) >= 1024
+    assert completion_budget(geometry(24, 120)) <= 16384
+
+
+def test_a_declared_budget_is_sent_to_the_endpoint():
+    client = DashboardLLM("https://api.test/v1", "sk-test", "m", 0.3, max_tokens=7800)
+    with patch("requests.post", return_value=_response("{}")) as post:
+        client.complete("sys", "user")
+    assert post.call_args.kwargs["json"]["max_tokens"] == 7800
+
+
+def test_no_budget_is_sent_when_none_was_declared():
+    with patch("requests.post", return_value=_response("{}")) as post:
+        _client().complete("sys", "user")
+    assert "max_tokens" not in post.call_args.kwargs["json"]
+
+
+def test_the_advertised_label_room_is_the_real_ledger_cell_not_the_board():
+    # A 120-cell panel's ledger cell is two columns, not the whole wall. The
+    # prompt used to advertise the board's full width, so the model wrote a
+    # label the renderer then cut off.
+    _, user = _panel_prompt_pair(["a.date"], {"a.date": "09/03/26"})
+    assert "label_max=" in user
+    advertised = int(user.split("label_max=")[1].split(",")[0].split()[0])
+    assert advertised < 120
+    assert advertised == 2 * PANEL.tile_width - 1 - len("09/03/26") - 1
