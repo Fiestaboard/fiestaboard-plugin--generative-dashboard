@@ -207,6 +207,38 @@ def test_fiestabot_rejection_of_a_pasted_provider_key_reports_nothing(config, mo
     assert resolve(dict(config, llm_source="fiestabot"), FakePlugin()).on_rejected() is None
 
 
+CHATGPT_SIGNED_IN = {
+    # Saved by Settings → AI without a protocol; core fills openai_responses.
+    "id": "c1", "name": "ChatGPT", "api_key": "", "base_url": "",
+    "sign_in": {"preset": "openai_chatgpt"},
+}
+
+
+def test_a_chatgpt_sign_in_without_a_stored_protocol_is_not_openai_compatible():
+    assert not connection.is_openai_compatible(CHATGPT_SIGNED_IN)
+    assert connection.is_openai_compatible(
+        dict(CHATGPT_SIGNED_IN, sign_in={"preset": "openrouter"})
+    )
+
+
+def test_fiestabot_refuses_a_chatgpt_sign_in_without_a_stored_protocol(config, monkeypatch):
+    _providers(monkeypatch, [CHATGPT_SIGNED_IN])
+    monkeypatch.setattr(connection, "_resolve_provider_auth", lambda p: pytest.fail("resolved"))
+    with pytest.raises(ConnectionUnavailable, match="OpenAI-compatible"):
+        resolve(dict(config, llm_source="fiestabot"), FakePlugin())
+    assert not connection.is_ready(dict(config, llm_source="fiestabot"), FakePlugin())
+
+
+def test_fiestabot_refuses_a_provider_whose_resolved_protocol_is_not_openai(config, monkeypatch):
+    _providers(monkeypatch, [dict(OPENAI_PROVIDER, protocol="", sign_in={"preset": "x"})])
+    monkeypatch.setattr(
+        connection, "_resolve_provider_auth",
+        lambda p: dict(p, api_key="t", protocol="openai_responses"),
+    )
+    with pytest.raises(ConnectionUnavailable, match="OpenAI-compatible"):
+        resolve(dict(config, llm_source="fiestabot"), FakePlugin())
+
+
 def test_the_real_core_resolver_leaves_an_api_key_provider_alone():
     # Runs against the core checkout: the api_key path must be the identity.
     assert connection._resolve_provider_auth(OPENAI_PROVIDER) is OPENAI_PROVIDER
@@ -343,6 +375,14 @@ def test_the_provider_picker_lists_fiestabot_providers(plugin, monkeypatch):
     by_value = {o.value: o for o in result.options}
     assert by_value["p1"].label == "My OpenAI" and not by_value["p1"].disabled
     assert by_value["a"].disabled
+
+
+def test_the_provider_picker_disables_a_chatgpt_sign_in(plugin, monkeypatch):
+    from src.plugins.base import OptionsRequest
+
+    _providers(monkeypatch, [CHATGPT_SIGNED_IN])
+    result = plugin.get_options(OptionsRequest(options_id="ai_providers", query="", limit=50))
+    assert result.options[0].disabled
 
 
 def test_the_provider_picker_explains_an_empty_list(plugin, monkeypatch):

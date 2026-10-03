@@ -98,8 +98,21 @@ def fiestabot_providers() -> list[dict[str, Any]]:
     return [p for p in providers if isinstance(p, dict) and p.get("id")]
 
 
+def _preset_protocol(provider: dict[str, Any]) -> str:
+    """The protocol core fills in for a sign-in provider saved without one."""
+    try:
+        from src.ai.sign_in import PRESETS, sign_in_preset
+    except ImportError:
+        return ""
+    preset = sign_in_preset(provider)
+    return PRESETS[preset].protocol if preset else ""
+
+
 def is_openai_compatible(provider: dict[str, Any]) -> bool:
-    return str(provider.get("protocol") or "") in OPENAI_PROTOCOLS
+    protocol = str(provider.get("protocol") or "")
+    if not protocol and provider.get("sign_in"):
+        protocol = _preset_protocol(provider)
+    return protocol in OPENAI_PROTOCOLS
 
 
 def pick_provider(config: dict[str, Any]) -> dict[str, Any]:
@@ -136,6 +149,10 @@ def _fiestabot(config: dict[str, Any]) -> Endpoint:
         raise
     except Exception as exc:  # core's AIGenerationError: signed out
         raise ConnectionUnavailable(str(exc)) from exc
+    if not is_openai_compatible(ready):
+        raise ConnectionUnavailable(
+            f"FiestaBot provider {name!r} is not OpenAI-compatible. Pick another."
+        )
     models = ready.get("models") or []
     model = ready.get("default_model") or (models[0] if models else "") or _model(config)
     signed_in = bool(provider.get("sign_in"))

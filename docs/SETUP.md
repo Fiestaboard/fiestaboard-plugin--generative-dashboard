@@ -37,7 +37,7 @@ one is the reason to run it.
 are `api_key` and keep working unchanged.
 
 1. **`openrouter`: sign in, nothing to paste** (FiestaBoard 9.9 or later).
-   Choose `openrouter`, save, then press **Sign in to OpenRouter** under
+   Choose `openrouter`, save, then press **Sign in with OpenRouter** under
    **Account connection** in this plugin's settings. OpenRouter asks you to
    approve a key for FiestaBoard and the board stores it. If the browser does
    not come back to the board, use **Sign in without a browser redirect** and
