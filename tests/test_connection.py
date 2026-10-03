@@ -4,6 +4,7 @@ import json
 import pathlib
 
 import pytest
+from src.devices import BoardContext
 
 from plugins.generative_dashboard import GenerativeDashboardPlugin, catalog, connection
 from plugins.generative_dashboard.connection import (
@@ -16,6 +17,7 @@ from plugins.generative_dashboard.llm import CoreLLM, DashboardLLM, LLMError
 MANIFEST_PATH = pathlib.Path(__file__).resolve().parent.parent / "manifest.json"
 VALUES = {"air.aqi": "68", "wx.temp": "61F"}
 REPLY = '{"tiles": []}'
+FLAGSHIP = BoardContext("flagship", rows=6, cols=22)
 
 
 class Completion:
@@ -248,6 +250,53 @@ def test_the_model_variable_is_the_setting_with_a_key(plugin):
     with plugin._bound_board(None):
         state = plugin._hydrate(plugin._state_key())
         assert plugin._result(state, [""], "", 0).data["model"] == "gpt-4o-mini"
+
+
+def _spawns(plugin, monkeypatch, board):
+    calls = []
+    monkeypatch.setattr(plugin, "_spawn", lambda *a, **k: calls.append(a))
+    with plugin._bound_board(board):
+        plugin.fetch_data()
+    return calls
+
+
+P1 = {"id": "p1", "name": "P1", "protocol": "openai", "model": "m", "models": [],
+      "default": True, "sign_in": None}
+
+
+@pytest.mark.parametrize("providers, chosen", [
+    ([], ""),          # AI off, or no provider set up
+    ([], "p1"),
+    ([P1], "gone"),    # the chosen provider was deleted
+])
+def test_no_worker_starts_while_fiestaboards_ai_cannot_answer(plugin, monkeypatch, providers, chosen):
+    plugin.config = _core_config(plugin.config, ai_provider=chosen)
+    monkeypatch.setattr(plugin, "ai_complete", FakeCore().ai_complete)
+    monkeypatch.setattr(plugin, "ai_providers", lambda: list(providers))
+    assert _spawns(plugin, monkeypatch, FLAGSHIP) == []
+    # Saving the settings is still allowed: AI may be set up later.
+    assert UPDATE_MESSAGE not in plugin.validate_config(plugin.config)
+
+
+@pytest.mark.parametrize("chosen", ["", "p1"])
+def test_a_worker_starts_when_fiestaboards_ai_has_the_provider(plugin, monkeypatch, chosen):
+    plugin.config = _core_config(plugin.config, ai_provider=chosen)
+    monkeypatch.setattr(plugin, "ai_complete", FakeCore().ai_complete)
+    monkeypatch.setattr(plugin, "ai_providers", lambda: [P1])
+    assert len(_spawns(plugin, monkeypatch, FLAGSHIP)) == 1
+
+
+def test_the_real_core_with_ai_off_starts_no_worker(plugin, monkeypatch):
+    from src.ai import plugin_api
+
+    monkeypatch.setattr(plugin_api, "_providers_block", lambda: {"enabled": False, "providers": []})
+    plugin.config = _core_config(plugin.config)
+    assert _spawns(plugin, monkeypatch, FLAGSHIP) == []
+
+
+def test_a_saved_key_starts_a_worker_even_with_ai_off(plugin, monkeypatch):
+    monkeypatch.setattr(plugin, "ai_providers", list)
+    assert len(_spawns(plugin, monkeypatch, FLAGSHIP)) == 1
 
 
 def test_validate_config_needs_no_key_with_fiestaboards_ai(plugin):

@@ -37,6 +37,30 @@ def is_ready(config: dict[str, Any], plugin: Any) -> bool:
     return uses_api_key(config) or core_complete(plugin) is not None
 
 
+def can_generate(config: dict[str, Any], plugin: Any) -> bool:
+    """:func:`is_ready`, and FiestaBoard's AI has the provider to answer.
+
+    The render path asks this before starting a worker. While AI is off, no
+    provider is set up, or the chosen one was deleted, every attempt would
+    fail at once, and a cold board renders constantly, so it would start a
+    worker and log a warning on every render. Saving settings still only
+    needs :func:`is_ready`: AI may be set up later.
+    """
+    if uses_api_key(config):
+        return True
+    if core_complete(plugin) is None:
+        return False
+    providers = getattr(plugin, "ai_providers", None)
+    if not callable(providers):
+        return True
+    try:
+        ids = {str(p.get("id")) for p in providers() or [] if isinstance(p, dict)}
+    except Exception:  # noqa: BLE001 - unreadable settings: let ai_complete say why
+        return True
+    chosen = str(config.get("ai_provider") or "")
+    return bool(ids) and (not chosen or chosen in ids)
+
+
 def build_client(
     config: dict[str, Any], plugin: Any, *, temperature: float, max_tokens: int | None
 ):

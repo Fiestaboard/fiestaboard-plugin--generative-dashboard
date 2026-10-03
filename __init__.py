@@ -426,7 +426,9 @@ class GenerativeDashboardPlugin(PluginBase):
             # board=None from the settings dialog; generating there would bill
             # the user for a keystroke.
             return False
-        if not connection.is_ready(config, self):
+        if not connection.can_generate(config, self):
+            # No key, and FiestaBoard's AI is off, has no provider, or lost
+            # the chosen one: a worker would only fail and log, every render.
             return False
         with self._lock:
             started = self._inflight.get(key)
