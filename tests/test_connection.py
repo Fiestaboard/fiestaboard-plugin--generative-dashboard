@@ -33,7 +33,7 @@ class Completion:
 
 
 class FakeCore:
-    """A plugin on FiestaBoard 9.9.0: ai_complete exists."""
+    """A plugin on FiestaBoard 9.11.0: ai_complete exists."""
 
     def __init__(self, replies=None):
         self.replies = list(replies or [Completion(REPLY)])
@@ -48,7 +48,7 @@ class FakeCore:
 
 
 class OldCore:
-    """A plugin on a core before 9.9.0: no ai_complete."""
+    """A plugin on a core before 9.11.0: no ai_complete."""
 
 
 def _core_config(config, **extra):
@@ -330,7 +330,7 @@ def test_the_manifest_has_no_plugin_sign_in(raw):
 
 
 def test_the_manifest_needs_a_core_with_ai_complete(raw):
-    assert raw["fiestaboard_version"] == ">=9.9.0"
+    assert raw["fiestaboard_version"] == ">=9.11.0"
 
 
 def test_the_manifest_offers_cores_provider_picker(raw):

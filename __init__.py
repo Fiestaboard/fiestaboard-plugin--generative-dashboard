@@ -159,7 +159,7 @@ class GenerativeDashboardPlugin(PluginBase):
     def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         if not connection.is_ready(config, self):
-            # A core before 9.9.0 has no AI providers to lend.
+            # A core before 9.11.0 has no AI providers to lend.
             errors.append(connection.UPDATE_MESSAGE)
 
         base_url = config.get("api_base_url", "")
@@ -799,7 +799,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
             return OptionsResult(options=options)
         if request.options_id == "ai_providers":
-            # Core lists every provider of every protocol (FiestaBoard 9.9.0).
+            # Core lists every provider of every protocol (FiestaBoard 9.11.0).
             return super().get_options(request)
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 

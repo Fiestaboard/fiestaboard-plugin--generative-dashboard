@@ -11,7 +11,7 @@ It uses your FiestaBoard AI provider: whatever you set up in
 OpenRouter, Hugging Face or ChatGPT). There is no separate AI setup.
 
 **Prerequisites:**
-- FiestaBoard ≥ 9.9.0
+- FiestaBoard ≥ 9.11.0
 - An AI provider in **Settings → AI Providers** (or, instead, a separate
   OpenAI-compatible endpoint and its API key)
 - At least a few data plugins enabled — the dashboard can only show what
@@ -74,7 +74,7 @@ Notes:
   `http://host.docker.internal:PORT/v1`.
 - Local endpoints usually ignore the key, but it must not be empty — any
   non-empty value works.
-- On a FiestaBoard older than 9.9.0 there are no AI providers to borrow: the
+- On a FiestaBoard older than 9.11.0 there are no AI providers to borrow: the
   plugin says "Update FiestaBoard to use its AI providers, or paste an API
   key".
 - Nothing but the composition prompt is sent to the model you configure;

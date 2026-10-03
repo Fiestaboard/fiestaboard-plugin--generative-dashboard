@@ -95,7 +95,7 @@ def test_generation_starts_when_a_board_is_present(plugin, monkeypatch):
 
 def test_generation_is_skipped_without_an_api_key_on_an_old_core(plugin, monkeypatch):
     plugin.config = dict(plugin.config, api_key="")
-    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.9.0
+    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.11.0
     calls = _spy_spawn(plugin, monkeypatch)
     _fetch(plugin)
     assert calls == []
@@ -175,7 +175,7 @@ def test_a_failed_regeneration_never_flashes_the_fallback_grid(plugin, monkeypat
 
 
 def test_validate_config_requires_an_api_key_on_an_old_core(plugin, monkeypatch):
-    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.9.0
+    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.11.0
     assert any("API key" in e for e in plugin.validate_config({"watchlist": []}))
 
 

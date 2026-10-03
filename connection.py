@@ -1,7 +1,7 @@
 """Where the model comes from.
 
 - FiestaBoard's AI providers (Settings -> AI Providers, pasted key or signed
-  in) through ``PluginBase.ai_complete`` (FiestaBoard 9.9.0). ``ai_provider``
+  in) through ``PluginBase.ai_complete`` (FiestaBoard 9.11.0). ``ai_provider``
   picks one (blank = FiestaBot's default) and ``ai_model`` a model (blank =
   that provider's default).
 - A separate API key: a saved ``api_key`` with ``api_base_url`` and
@@ -27,7 +27,7 @@ def uses_api_key(config: dict[str, Any]) -> bool:
 
 
 def core_complete(plugin: Any):
-    """``plugin.ai_complete`` on FiestaBoard 9.9.0 or later, else None."""
+    """``plugin.ai_complete`` on FiestaBoard 9.11.0 or later, else None."""
     complete = getattr(plugin, "ai_complete", None)
     return complete if callable(complete) else None
 

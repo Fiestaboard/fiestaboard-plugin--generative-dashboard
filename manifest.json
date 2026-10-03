@@ -10,7 +10,7 @@
   "category": "data",
   "live_data": true,
   "min_refresh_seconds": 120,
-  "fiestaboard_version": ">=9.9.0",
+  "fiestaboard_version": ">=9.11.0",
   "settings_schema": {
     "type": "object",
     "properties": {

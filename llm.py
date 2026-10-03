@@ -151,7 +151,7 @@ def parse_reply(content: str) -> dict:
 class CoreLLM:
     """The same ``complete(system, user)`` over FiestaBoard's AI providers.
 
-    *ai_complete* is ``PluginBase.ai_complete`` (FiestaBoard 9.9.0), which
+    *ai_complete* is ``PluginBase.ai_complete`` (FiestaBoard 9.11.0), which
     resolves the provider, protocol, model and sign-in exactly as FiestaBot
     does and retries a refused sign-in once on its own. The reply is parsed
     here rather than with ``json=True`` so a fenced or comma-slipped object
