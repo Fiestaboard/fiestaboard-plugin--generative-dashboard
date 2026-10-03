@@ -31,7 +31,7 @@ from src.plugins.base import (
     PluginResult,
 )
 
-from . import catalog, complog, fallback, gate
+from . import catalog, complog, connection, fallback, gate
 from .journal import Journal
 from .when import local_now
 from .charset import sanitize
@@ -157,7 +157,10 @@ class GenerativeDashboardPlugin(PluginBase):
 
     def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
-        if not config.get("api_key"):
+        source = config.get("llm_source", connection.DEFAULT_SOURCE)
+        if source not in connection.SOURCES:
+            errors.append(f"llm_source must be one of {', '.join(connection.SOURCES)}")
+        elif source == "api_key" and not config.get("api_key"):
             errors.append("API key is required")
 
         base_url = config.get("api_base_url", "")
@@ -424,7 +427,7 @@ class GenerativeDashboardPlugin(PluginBase):
             # board=None from the settings dialog; generating there would bill
             # the user for a keystroke.
             return False
-        if not config.get("api_key"):
+        if not self._connection_ready(config):
             return False
         with self._lock:
             started = self._inflight.get(key)
@@ -442,6 +445,14 @@ class GenerativeDashboardPlugin(PluginBase):
             return True
         interval = float(config.get("refresh_seconds", 300) or 300)
         return (time.monotonic() - state.last_generated) >= interval
+
+    def _connection_ready(self, config: dict[str, Any]) -> bool:
+        """Whether there is a key, sign-in or FiestaBot provider to call with."""
+        try:
+            return connection.is_ready(config, self)
+        except Exception:
+            logger.debug("Connection check failed", exc_info=True)
+            return False
 
     def _compose(
         self,
@@ -651,10 +662,15 @@ class GenerativeDashboardPlugin(PluginBase):
     def _generate(self, geo, config, watchlist, current, previous, previous_board,
                   journal="", current_form="grid"):
         """One generation attempt, with a single stricter retry."""
+        try:
+            endpoint = connection.resolve(config, self)
+        except connection.ConnectionUnavailable as exc:
+            logger.warning("Dashboard has no model connection: %s", exc)
+            return None
         client = DashboardLLM(
-            base_url=str(config.get("api_base_url", "https://api.openai.com/v1")),
-            api_key=str(config.get("api_key", "")),
-            model=str(config.get("model", "gpt-4o-mini")),
+            base_url=endpoint.base_url,
+            api_key=endpoint.api_key,
+            model=endpoint.model,
             temperature=float(config.get("temperature", 0.3) or 0.3),
             max_tokens=completion_budget(geo),
         )
@@ -670,7 +686,9 @@ class GenerativeDashboardPlugin(PluginBase):
         audience = str(config.get("audience", "") or "")
 
         rejection = ""
-        for attempt in range(2):
+        reauthorized = False
+        attempt = 0
+        while attempt < 2:
             suffix = "" if attempt == 0 else (
                 "\n\nYour previous reply was rejected: "
                 + (rejection or "it broke the rules")
@@ -707,7 +725,16 @@ class GenerativeDashboardPlugin(PluginBase):
                 logger.warning(
                     "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
                 )
+                if exc.status == 401 and not reauthorized:
+                    # A sign-in may refresh once; a pasted key reports nothing.
+                    reauthorized = True
+                    fresh = endpoint.on_rejected()
+                    if fresh:
+                        client.api_key = fresh
+                        continue
+                    return None
                 if exc.retryable and attempt == 0:
+                    attempt += 1
                     continue
                 return None
 
@@ -763,6 +790,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 logger.warning(
                     "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc
                 )
+            attempt += 1
 
         return None
 
@@ -787,6 +815,8 @@ class GenerativeDashboardPlugin(PluginBase):
                     "variables become available.",
                 )
             return OptionsResult(options=options)
+        if request.options_id == "ai_providers":
+            return self._provider_options(request)
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
     def _variable_options(self, request: OptionsRequest) -> OptionsResult:
@@ -817,6 +847,31 @@ class GenerativeDashboardPlugin(PluginBase):
             has_more=len(choices) > len(shown),
             total=len(choices),
         )
+
+    def _provider_options(self, request: OptionsRequest) -> OptionsResult:
+        """FiestaBot's AI providers; only OpenAI-compatible ones can be picked."""
+        providers = connection.fiestabot_providers()
+        if not providers:
+            return OptionsResult(
+                options=[],
+                error="No FiestaBot AI provider yet. Add one in Settings → AI.",
+            )
+        needle = request.query.strip().lower()
+        options = []
+        for provider in providers:
+            name = str(provider.get("name") or provider["id"])
+            if needle and needle not in name.lower():
+                continue
+            usable = connection.is_openai_compatible(provider)
+            options.append(Option(
+                value=str(provider["id"]),
+                label=name,
+                description=(
+                    "Signed in" if provider.get("sign_in") else "API key"
+                ) if usable else "Not OpenAI-compatible",
+                disabled=not usable,
+            ))
+        return OptionsResult(options=options[: request.limit])
 
     def _watched_options(self, request: OptionsRequest) -> list[Option]:
         """Only variables already on the watchlist can be pinned."""

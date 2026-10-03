@@ -71,9 +71,14 @@ class LLMError(Exception):
     still be unreachable a millisecond later.
     """
 
-    def __init__(self, message: str, retryable: bool = False) -> None:
+    def __init__(
+        self, message: str, retryable: bool = False, status: int | None = None
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        # The HTTP status, when the endpoint answered with an error (401 means
+        # the key was refused, which a sign-in can recover from).
+        self.status = status
 
 
 class DashboardLLM:
@@ -124,7 +129,9 @@ class DashboardLLM:
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
         except requests.RequestException as exc:
-            raise LLMError(f"Request failed: {exc}") from exc
+            reply = getattr(exc, "response", None)
+            status = getattr(reply, "status_code", None) if reply is not None else None
+            raise LLMError(f"Request failed: {exc}", status=status) from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(f"Malformed response: {exc}", retryable=True) from exc
 

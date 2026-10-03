@@ -8,7 +8,7 @@ Get an AI-curated board running, then tune it — the tuning is where the qualit
 plugins expose, choosing what matters right now for the people watching.
 
 **Prerequisites:**
-- FiestaBoard ≥ 2.10.0
+- FiestaBoard ≥ 9.9.0
 - An OpenAI-compatible chat endpoint (hosted or local) and its API key
 - At least a few data plugins enabled — the dashboard can only show what
   your plugins provide
@@ -22,8 +22,8 @@ one is the reason to run it.
 ## Quick Setup
 
 1. **Enable** the plugin under Integrations.
-2. **Configure the model.** Endpoint URL, API key, model name. See *Choosing
-   a model* below — this choice matters more than any prompt setting.
+2. **Connect a model.** Paste a key, sign in with OpenRouter, or reuse a
+   FiestaBot provider (see *Connecting an AI model*). See *Choosing a model* below — this choice matters more than any prompt setting.
 3. **Write "Who's Watching."** One paragraph: who glances at this wall, your
    schedules, what you care about at which times of day, what bores you.
    This is the single highest-leverage field in the plugin.
@@ -33,8 +33,25 @@ one is the reason to run it.
 
 ### Connecting an AI model
 
-Any endpoint that speaks the OpenAI chat-completions API works. Fill three
-fields:
+**Model Connection** (`llm_source`) picks one of three ways. Existing setups
+are `api_key` and keep working unchanged.
+
+1. **`openrouter`: sign in, nothing to paste** (FiestaBoard 9.9 or later).
+   Choose `openrouter`, save, then press **Sign in to OpenRouter** under
+   **Account connection** in this plugin's settings. OpenRouter asks you to
+   approve a key for FiestaBoard and the board stores it. If the browser does
+   not come back to the board, use **Sign in without a browser redirect** and
+   paste the code OpenRouter shows. Set `model` to an OpenRouter model
+   (`google/gemini-3.7-flash`); a bare name such as `gpt-4o-mini` is sent as
+   `openai/gpt-4o-mini`. `api_base_url` and `api_key` are not used.
+2. **`fiestabot`: reuse a FiestaBot provider.** If you already set up an AI
+   provider for FiestaBot in **Settings → AI** (a pasted key, or signed in),
+   choose `fiestabot` and pick it under **FiestaBot Provider** (empty means
+   FiestaBot's default). The model is the provider's default model. Only
+   OpenAI-compatible providers work; Anthropic and ChatGPT-sign-in providers
+   are shown but cannot be picked.
+3. **`api_key`: paste a key** (the default). Any endpoint that speaks the
+   OpenAI chat-completions API works. Fill three fields:
 
 | Provider | `api_base_url` | `model` (example) | `api_key` |
 |---|---|---|---|
@@ -49,8 +66,10 @@ Notes:
   and make sure the server listens on `0.0.0.0`, not just localhost. If
   FiestaBoard runs in Docker on the same machine as the model, use
   `http://host.docker.internal:PORT/v1`.
-- Local endpoints usually ignore the key, but the field is required — any
-  non-empty value works.
+- Local endpoints usually ignore the key, but with `api_key` the field must
+  not be empty — any non-empty value works.
+- If a signed-in key stops working, the board tries once to recover and
+  otherwise shows **Reconnect needed** on the connection; sign in again.
 - Nothing but the composition prompt is sent to the endpoint you configure;
   there is no other network destination.
 
@@ -104,8 +123,10 @@ every guarantee is model-independent, but taste is not.
 | Setting | Default | Notes |
 |---|---|---|
 | `audience` | — | The editor's brief; leads every prompt |
-| `api_base_url` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint |
-| `api_key` | — | Required |
+| `llm_source` | `api_key` | `api_key`, `openrouter` (sign in), or `fiestabot` |
+| `fiestabot_provider` | empty | FiestaBot provider id; empty = FiestaBot's default |
+| `api_base_url` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint (with `api_key`) |
+| `api_key` | — | Needed with `api_key` |
 | `model` | `gpt-4o-mini` | See *Choosing a model* |
 | `output_mode` | `auto` | `auto` / `grid` / `prose` |
 | `temperature` | `0.3` | Raise only if boards feel repetitive |

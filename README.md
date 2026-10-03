@@ -95,8 +95,10 @@ Or borrow just the headline for a corner of another page:
 | Setting | Default | Description |
 |---|---|---|
 | `audience` | — | **The highest-leverage setting.** Who watches this board and what they care about, as a paragraph |
-| `api_base_url` | OpenAI | Any OpenAI-compatible chat completions endpoint |
-| `api_key` | — | Required (any value for local endpoints that skip auth) |
+| `llm_source` | `api_key` | Where the model connection comes from: `api_key` (paste a key), `openrouter` (sign in, FiestaBoard 9.9+), or `fiestabot` (reuse a FiestaBot AI provider) |
+| `fiestabot_provider` | FiestaBot's default | Which FiestaBot provider, with `llm_source` = `fiestabot` |
+| `api_base_url` | OpenAI | Any OpenAI-compatible chat completions endpoint (with `api_key`) |
+| `api_key` | — | Needed with `llm_source` = `api_key` (any value for local endpoints that skip auth) |
 | `model` | `gpt-4o-mini` | See model notes in the setup guide |
 | `output_mode` | `auto` | `auto` lets the AI pick grid or prose per moment |
 | `temperature` | `0.3` | Low on purpose — this is layout, not art |
