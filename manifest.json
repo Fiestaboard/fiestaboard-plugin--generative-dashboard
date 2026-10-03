@@ -26,21 +26,10 @@
         "format": "textarea",
         "default": ""
       },
-      "llm_source": {
+      "ai_provider": {
         "type": "string",
-        "title": "Model Connection",
-        "description": "api_key: paste a key below (any OpenAI-compatible endpoint). openrouter: sign in with OpenRouter under Account connection, no key to paste. fiestabot: reuse an AI provider you set up for FiestaBot in Settings \u2192 AI.",
-        "enum": [
-          "api_key",
-          "openrouter",
-          "fiestabot"
-        ],
-        "default": "api_key"
-      },
-      "fiestabot_provider": {
-        "type": "string",
-        "title": "FiestaBot Provider",
-        "description": "Used when Model Connection is fiestabot. Leave empty for FiestaBot's default provider. The model comes from the provider. Only OpenAI-compatible providers work.",
+        "title": "AI Provider",
+        "description": "Uses your FiestaBoard AI provider from Settings \u2192 AI Providers (a pasted key or a sign-in such as OpenRouter). Leave empty for FiestaBot's default provider.",
         "default": "",
         "ui:widget": "remote-options",
         "ui:options": {
@@ -51,23 +40,29 @@
           "placeholder": "FiestaBot's default provider"
         }
       },
+      "ai_model": {
+        "type": "string",
+        "title": "AI Model (optional)",
+        "description": "A model the chosen provider serves. Leave empty for the provider's default model.",
+        "default": ""
+      },
       "api_base_url": {
         "type": "string",
-        "title": "API Base URL",
-        "description": "Any OpenAI-compatible chat completions endpoint (e.g. https://api.openai.com/v1, or http://localhost:11434/v1 for Ollama). Used when Model Connection is api_key.",
+        "title": "Separate API Key: Base URL",
+        "description": "Use a separate API key: any OpenAI-compatible chat completions endpoint (e.g. https://api.openai.com/v1, or http://localhost:11434/v1 for Ollama). Only used when API Key is set.",
         "default": "https://api.openai.com/v1"
       },
       "api_key": {
         "type": "string",
-        "title": "API Key",
-        "description": "Used when Model Connection is api_key. Use any value for local endpoints that do not check it.",
+        "title": "Separate API Key (optional)",
+        "description": "Use a separate API key instead of your FiestaBoard AI provider. When set, it wins, together with the base URL and model here. Use any value for local endpoints that do not check it.",
         "secret": true
       },
       "model": {
         "type": "string",
-        "title": "Model",
+        "title": "Separate API Key: Model",
         "default": "gpt-4o-mini",
-        "description": "Any model the endpoint serves. gpt-4o-mini is plenty for this. With OpenRouter, a bare name means OpenAI's (openai/gpt-4o-mini); write vendor/model for others."
+        "description": "Any model the endpoint above serves; only used when API Key is set. gpt-4o-mini is plenty for this."
       },
       "output_mode": {
         "type": "string",
@@ -206,14 +201,6 @@
         "default": ""
       }
     }
-  },
-  "oauth": {
-    "provider_name": "OpenRouter",
-    "flows": [
-      "key_exchange"
-    ],
-    "authorization_url": "https://openrouter.ai/auth",
-    "token_url": "https://openrouter.ai/api/v1/auth/keys"
   },
   "env_vars": [
     {

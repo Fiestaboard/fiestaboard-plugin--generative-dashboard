@@ -45,7 +45,6 @@ from .layout import (
     wrap_center,
 )
 from .llm import (
-    DashboardLLM,
     LLMError,
     build_auto_prompt,
     build_grid_prompt,
@@ -148,6 +147,8 @@ class GenerativeDashboardPlugin(PluginBase):
         self._inflight: dict[str, float] = {}
         self._config_generation = 0
         self._outage_index = 0
+        # The model FiestaBoard's AI last answered with, for the variable.
+        self._core_model = ""
 
     @property
     def plugin_id(self) -> str:
@@ -157,11 +158,9 @@ class GenerativeDashboardPlugin(PluginBase):
 
     def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
-        source = config.get("llm_source", connection.DEFAULT_SOURCE)
-        if source not in connection.SOURCES:
-            errors.append(f"llm_source must be one of {', '.join(connection.SOURCES)}")
-        elif source == "api_key" and not config.get("api_key"):
-            errors.append("API key is required")
+        if not connection.is_ready(config, self):
+            # A core before 9.9.0 has no AI providers to lend.
+            errors.append(connection.UPDATE_MESSAGE)
 
         base_url = config.get("api_base_url", "")
         if base_url and not base_url.startswith(("http://", "https://")):
@@ -427,7 +426,7 @@ class GenerativeDashboardPlugin(PluginBase):
             # board=None from the settings dialog; generating there would bill
             # the user for a keystroke.
             return False
-        if not self._connection_ready(config):
+        if not connection.is_ready(config, self):
             return False
         with self._lock:
             started = self._inflight.get(key)
@@ -445,14 +444,6 @@ class GenerativeDashboardPlugin(PluginBase):
             return True
         interval = float(config.get("refresh_seconds", 300) or 300)
         return (time.monotonic() - state.last_generated) >= interval
-
-    def _connection_ready(self, config: dict[str, Any]) -> bool:
-        """Whether there is a key, sign-in or FiestaBot provider to call with."""
-        try:
-            return connection.is_ready(config, self)
-        except Exception:
-            logger.debug("Connection check failed", exc_info=True)
-            return False
 
     def _compose(
         self,
@@ -552,7 +543,10 @@ class GenerativeDashboardPlugin(PluginBase):
                 "stat_count": stat_count,
                 "degraded": degraded,
                 "generated_at": state.generated_at,
-                "model": str(self.config.get("model", "")),
+                # A separate API key names its model; FiestaBoard's AI names
+                # the one its provider answered with.
+                "model": str(self.config.get("model", ""))
+                if connection.uses_api_key(self.config) else self._core_model,
             },
         )
 
@@ -663,17 +657,14 @@ class GenerativeDashboardPlugin(PluginBase):
                   journal="", current_form="grid"):
         """One generation attempt, with a single stricter retry."""
         try:
-            endpoint = connection.resolve(config, self)
+            client = connection.build_client(
+                config, self,
+                temperature=float(config.get("temperature", 0.3) or 0.3),
+                max_tokens=completion_budget(geo),
+            )
         except connection.ConnectionUnavailable as exc:
             logger.warning("Dashboard has no model connection: %s", exc)
             return None
-        client = DashboardLLM(
-            base_url=endpoint.base_url,
-            api_key=endpoint.api_key,
-            model=endpoint.model,
-            temperature=float(config.get("temperature", 0.3) or 0.3),
-            max_tokens=completion_budget(geo),
-        )
         mode = config.get("output_mode", "grid")
         labels = self._labels(config)
         notes = self._notes(config)
@@ -686,9 +677,7 @@ class GenerativeDashboardPlugin(PluginBase):
         audience = str(config.get("audience", "") or "")
 
         rejection = ""
-        reauthorized = False
-        attempt = 0
-        while attempt < 2:
+        for attempt in range(2):
             suffix = "" if attempt == 0 else (
                 "\n\nYour previous reply was rejected: "
                 + (rejection or "it broke the rules")
@@ -721,20 +710,13 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
             try:
                 payload = client.complete(system, user)
+                if not connection.uses_api_key(config):
+                    self._core_model = client.model
             except LLMError as exc:
                 logger.warning(
                     "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
                 )
-                if exc.status == 401 and not reauthorized:
-                    # A sign-in may refresh once; a pasted key reports nothing.
-                    reauthorized = True
-                    fresh = endpoint.on_rejected()
-                    if fresh:
-                        client.api_key = fresh
-                        continue
-                    return None
                 if exc.retryable and attempt == 0:
-                    attempt += 1
                     continue
                 return None
 
@@ -790,7 +772,6 @@ class GenerativeDashboardPlugin(PluginBase):
                 logger.warning(
                     "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc
                 )
-            attempt += 1
 
         return None
 
@@ -816,7 +797,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
             return OptionsResult(options=options)
         if request.options_id == "ai_providers":
-            return self._provider_options(request)
+            # Core lists every provider of every protocol (FiestaBoard 9.9.0).
+            return super().get_options(request)
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
     def _variable_options(self, request: OptionsRequest) -> OptionsResult:
@@ -847,31 +829,6 @@ class GenerativeDashboardPlugin(PluginBase):
             has_more=len(choices) > len(shown),
             total=len(choices),
         )
-
-    def _provider_options(self, request: OptionsRequest) -> OptionsResult:
-        """FiestaBot's AI providers; only OpenAI-compatible ones can be picked."""
-        providers = connection.fiestabot_providers()
-        if not providers:
-            return OptionsResult(
-                options=[],
-                error="No FiestaBot AI provider yet. Add one in Settings → AI.",
-            )
-        needle = request.query.strip().lower()
-        options = []
-        for provider in providers:
-            name = str(provider.get("name") or provider["id"])
-            if needle and needle not in name.lower():
-                continue
-            usable = connection.is_openai_compatible(provider)
-            options.append(Option(
-                value=str(provider["id"]),
-                label=name,
-                description=(
-                    "Signed in" if provider.get("sign_in") else "API key"
-                ) if usable else "Not OpenAI-compatible",
-                disabled=not usable,
-            ))
-        return OptionsResult(options=options[: request.limit])
 
     def _watched_options(self, request: OptionsRequest) -> list[Option]:
         """Only variables already on the watchlist can be pinned."""

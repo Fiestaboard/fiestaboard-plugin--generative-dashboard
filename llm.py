@@ -71,14 +71,9 @@ class LLMError(Exception):
     still be unreachable a millisecond later.
     """
 
-    def __init__(
-        self, message: str, retryable: bool = False, status: int | None = None
-    ) -> None:
+    def __init__(self, message: str, retryable: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
-        # The HTTP status, when the endpoint answered with an error (401 means
-        # the key was refused, which a sign-in can recover from).
-        self.status = status
 
 
 class DashboardLLM:
@@ -129,26 +124,82 @@ class DashboardLLM:
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
         except requests.RequestException as exc:
-            reply = getattr(exc, "response", None)
-            status = getattr(reply, "status_code", None) if reply is not None else None
-            raise LLMError(f"Request failed: {exc}", status=status) from exc
+            raise LLMError(f"Request failed: {exc}") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(f"Malformed response: {exc}", retryable=True) from exc
+        return parse_reply(content)
 
-        cleaned = _FENCE_RE.sub("", content).strip()
+
+def parse_reply(content: str) -> dict:
+    """The model's reply as a JSON object; a bad one is a *retryable* error."""
+    cleaned = _FENCE_RE.sub("", content).strip()
+    try:
+        parsed = json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        # Trailing commas are the local models' favourite slip. A repair
+        # costs nothing; a retry costs a whole model call.
+        repaired = re.sub(r",\s*([}\]])", r"\1", cleaned)
         try:
-            parsed = json.loads(cleaned, strict=False)
-        except json.JSONDecodeError:
-            # Trailing commas are the local models' favourite slip. A repair
-            # costs nothing; a retry costs a whole model call.
-            repaired = re.sub(r",\s*([}\]])", r"\1", cleaned)
-            try:
-                parsed = json.loads(repaired, strict=False)
-            except json.JSONDecodeError as exc:
-                raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
-        if not isinstance(parsed, dict):
-            raise LLMError("Response JSON was not an object", retryable=True)
-        return parsed
+            parsed = json.loads(repaired, strict=False)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"Response was not JSON: {exc}", retryable=True) from exc
+    if not isinstance(parsed, dict):
+        raise LLMError("Response JSON was not an object", retryable=True)
+    return parsed
+
+
+class CoreLLM:
+    """The same ``complete(system, user)`` over FiestaBoard's AI providers.
+
+    *ai_complete* is ``PluginBase.ai_complete`` (FiestaBoard 9.9.0), which
+    resolves the provider, protocol, model and sign-in exactly as FiestaBot
+    does and retries a refused sign-in once on its own. The reply is parsed
+    here rather than with ``json=True`` so a fenced or comma-slipped object
+    gets the same repair, and the same one stricter retry, as the pasted-key
+    client.
+    """
+
+    def __init__(
+        self,
+        ai_complete: Callable[..., object],
+        provider_id: str | None,
+        model: str | None,
+        temperature: float,
+        max_tokens: int | None = None,
+        timeout: int = 90,
+    ) -> None:
+        self.ai_complete = ai_complete
+        self.provider_id = provider_id
+        # Blank until the first answer names the model the provider used.
+        self.model = model or ""
+        self.requested_model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.timeout = timeout
+
+    def complete(self, system: str, user: str) -> dict:
+        """Send one prompt pair and return the parsed JSON object."""
+        # Only reached when ai_complete exists, so these exist too.
+        from src.plugins.base import AIError
+
+        try:
+            answer = self.ai_complete(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                provider_id=self.provider_id,
+                model=self.requested_model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                timeout=self.timeout,
+            )
+        except AIError as exc:
+            # Off, unconfigured, refused or unreachable: a stricter prompt
+            # fixes none of those.
+            raise LLMError(f"FiestaBoard AI: {exc}") from exc
+        self.model = str(getattr(answer, "model", "") or self.model)
+        return parse_reply(str(getattr(answer, "text", answer)))
 
 
 _EXPRESSION_REFERENCE_CACHE: str | None = None
