@@ -93,8 +93,9 @@ def test_generation_starts_when_a_board_is_present(plugin, monkeypatch):
     assert calls
 
 
-def test_generation_is_skipped_without_an_api_key(plugin, monkeypatch):
+def test_generation_is_skipped_without_an_api_key_on_an_old_core(plugin, monkeypatch):
     plugin.config = dict(plugin.config, api_key="")
+    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.11.0
     calls = _spy_spawn(plugin, monkeypatch)
     _fetch(plugin)
     assert calls == []
@@ -173,7 +174,8 @@ def test_a_failed_regeneration_never_flashes_the_fallback_grid(plugin, monkeypat
     assert "GRASS" not in joined
 
 
-def test_validate_config_requires_an_api_key(plugin):
+def test_validate_config_requires_an_api_key_on_an_old_core(plugin, monkeypatch):
+    monkeypatch.setattr(plugin, "ai_complete", None)  # a core before 9.11.0
     assert any("API key" in e for e in plugin.validate_config({"watchlist": []}))
 
 
@@ -570,7 +572,7 @@ def test_the_worker_is_given_a_reply_budget_for_the_board(plugin, monkeypatch):
             raise RuntimeError("no network in tests")
 
     monkeypatch.setattr(
-        "plugins.generative_dashboard.DashboardLLM", FakeClient
+        "plugins.generative_dashboard.connection.DashboardLLM", FakeClient
     )
     geo = plugin._geometry()
     with plugin._bound_board(PANEL):

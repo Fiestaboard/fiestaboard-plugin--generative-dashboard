@@ -31,7 +31,7 @@ from src.plugins.base import (
     PluginResult,
 )
 
-from . import catalog, complog, fallback, gate
+from . import catalog, complog, connection, fallback, gate
 from .journal import Journal
 from .when import local_now
 from .charset import sanitize
@@ -45,7 +45,6 @@ from .layout import (
     wrap_center,
 )
 from .llm import (
-    DashboardLLM,
     LLMError,
     build_auto_prompt,
     build_grid_prompt,
@@ -148,6 +147,8 @@ class GenerativeDashboardPlugin(PluginBase):
         self._inflight: dict[str, float] = {}
         self._config_generation = 0
         self._outage_index = 0
+        # The model FiestaBoard's AI last answered with, for the variable.
+        self._core_model = ""
 
     @property
     def plugin_id(self) -> str:
@@ -157,8 +158,9 @@ class GenerativeDashboardPlugin(PluginBase):
 
     def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
-        if not config.get("api_key"):
-            errors.append("API key is required")
+        if not connection.is_ready(config, self):
+            # A core before 9.11.0 has no AI providers to lend.
+            errors.append(connection.UPDATE_MESSAGE)
 
         base_url = config.get("api_base_url", "")
         if base_url and not base_url.startswith(("http://", "https://")):
@@ -424,7 +426,9 @@ class GenerativeDashboardPlugin(PluginBase):
             # board=None from the settings dialog; generating there would bill
             # the user for a keystroke.
             return False
-        if not config.get("api_key"):
+        if not connection.can_generate(config, self):
+            # No key, and FiestaBoard's AI is off, has no provider, or lost
+            # the chosen one: a worker would only fail and log, every render.
             return False
         with self._lock:
             started = self._inflight.get(key)
@@ -541,7 +545,10 @@ class GenerativeDashboardPlugin(PluginBase):
                 "stat_count": stat_count,
                 "degraded": degraded,
                 "generated_at": state.generated_at,
-                "model": str(self.config.get("model", "")),
+                # A separate API key names its model; FiestaBoard's AI names
+                # the one its provider answered with.
+                "model": str(self.config.get("model", ""))
+                if connection.uses_api_key(self.config) else self._core_model,
             },
         )
 
@@ -651,13 +658,15 @@ class GenerativeDashboardPlugin(PluginBase):
     def _generate(self, geo, config, watchlist, current, previous, previous_board,
                   journal="", current_form="grid"):
         """One generation attempt, with a single stricter retry."""
-        client = DashboardLLM(
-            base_url=str(config.get("api_base_url", "https://api.openai.com/v1")),
-            api_key=str(config.get("api_key", "")),
-            model=str(config.get("model", "gpt-4o-mini")),
-            temperature=float(config.get("temperature", 0.3) or 0.3),
-            max_tokens=completion_budget(geo),
-        )
+        try:
+            client = connection.build_client(
+                config, self,
+                temperature=float(config.get("temperature", 0.3) or 0.3),
+                max_tokens=completion_budget(geo),
+            )
+        except connection.ConnectionUnavailable as exc:
+            logger.warning("Dashboard has no model connection: %s", exc)
+            return None
         mode = config.get("output_mode", "grid")
         labels = self._labels(config)
         notes = self._notes(config)
@@ -703,6 +712,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
             try:
                 payload = client.complete(system, user)
+                if not connection.uses_api_key(config):
+                    self._core_model = client.model
             except LLMError as exc:
                 logger.warning(
                     "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
@@ -787,6 +798,9 @@ class GenerativeDashboardPlugin(PluginBase):
                     "variables become available.",
                 )
             return OptionsResult(options=options)
+        if request.options_id == "ai_providers":
+            # Core lists every provider of every protocol (FiestaBoard 9.11.0).
+            return super().get_options(request)
         raise OptionsUnavailable(f"Unknown options id: {request.options_id}")
 
     def _variable_options(self, request: OptionsRequest) -> OptionsResult:

@@ -6,10 +6,14 @@ Get an AI-curated board running, then tune it — the tuning is where the qualit
 
 **What it does:** composes your board from every variable your enabled
 plugins expose, choosing what matters right now for the people watching.
+It uses your FiestaBoard AI provider: whatever you set up in
+**Settings → AI Providers** for FiestaBot (a pasted key, or a sign-in such as
+OpenRouter, Hugging Face or ChatGPT). There is no separate AI setup.
 
 **Prerequisites:**
-- FiestaBoard ≥ 2.10.0
-- An OpenAI-compatible chat endpoint (hosted or local) and its API key
+- FiestaBoard ≥ 9.11.0
+- An AI provider in **Settings → AI Providers** (or, instead, a separate
+  OpenAI-compatible endpoint and its API key)
 - At least a few data plugins enabled — the dashboard can only show what
   your plugins provide
 
@@ -22,8 +26,10 @@ one is the reason to run it.
 ## Quick Setup
 
 1. **Enable** the plugin under Integrations.
-2. **Configure the model.** Endpoint URL, API key, model name. See *Choosing
-   a model* below — this choice matters more than any prompt setting.
+2. **Check the model.** By default the board uses FiestaBot's default AI
+   provider and its default model. Pick another under **AI Provider** and
+   **AI Model** if you like. See *Choosing a model* below — this choice
+   matters more than any prompt setting.
 3. **Write "Who's Watching."** One paragraph: who glances at this wall, your
    schedules, what you care about at which times of day, what bores you.
    This is the single highest-leverage field in the plugin.
@@ -33,8 +39,25 @@ one is the reason to run it.
 
 ### Connecting an AI model
 
-Any endpoint that speaks the OpenAI chat-completions API works. Fill three
-fields:
+**Your FiestaBoard AI provider (recommended).** Set up a provider once in
+**Settings → AI Providers**: paste a key, or sign in (OpenRouter, Hugging
+Face, ChatGPT). Any protocol FiestaBot supports works here too. In this
+plugin's settings:
+
+- **AI Provider** (`ai_provider`): leave it empty for FiestaBot's default
+  provider, or pick one.
+- **AI Model** (`ai_model`): leave it empty for that provider's default
+  model, or type one it serves (**Load models** in Settings → AI Providers
+  shows them).
+
+If the provider is turned off, signed out or unreachable, the board falls
+back to plain stats (`degraded: no_llm`) until it is fixed there.
+
+**A separate API key (optional).** Set **Separate API Key** (`api_key`) to
+call your own endpoint instead. When it is set it wins, together with
+`api_base_url` and `model`, exactly as in earlier versions; setups saved
+before this change keep working untouched. Any endpoint that speaks the
+OpenAI chat-completions API works:
 
 | Provider | `api_base_url` | `model` (example) | `api_key` |
 |---|---|---|---|
@@ -49,9 +72,12 @@ Notes:
   and make sure the server listens on `0.0.0.0`, not just localhost. If
   FiestaBoard runs in Docker on the same machine as the model, use
   `http://host.docker.internal:PORT/v1`.
-- Local endpoints usually ignore the key, but the field is required — any
+- Local endpoints usually ignore the key, but it must not be empty — any
   non-empty value works.
-- Nothing but the composition prompt is sent to the endpoint you configure;
+- On a FiestaBoard older than 9.11.0 there are no AI providers to borrow: the
+  plugin says "Update FiestaBoard to use its AI providers, or paste an API
+  key".
+- Nothing but the composition prompt is sent to the model you configure;
   there is no other network destination.
 
 ### Choosing a model
@@ -104,9 +130,11 @@ every guarantee is model-independent, but taste is not.
 | Setting | Default | Notes |
 |---|---|---|
 | `audience` | — | The editor's brief; leads every prompt |
-| `api_base_url` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint |
-| `api_key` | — | Required |
-| `model` | `gpt-4o-mini` | See *Choosing a model* |
+| `ai_provider` | empty | FiestaBoard AI provider; empty = FiestaBot's default |
+| `ai_model` | empty | Model for that provider; empty = its default |
+| `api_key` | — | Optional separate API key; wins when set |
+| `api_base_url` | `https://api.openai.com/v1` | With `api_key`: any OpenAI-compatible endpoint |
+| `model` | `gpt-4o-mini` | With `api_key`: the model. See *Choosing a model* |
 | `output_mode` | `auto` | `auto` / `grid` / `prose` |
 | `temperature` | `0.3` | Raise only if boards feel repetitive |
 | `refresh_seconds` | `900` | Re-layout floor (≥120); values live regardless |
@@ -126,8 +154,9 @@ optional; settings take precedence).
 ## Troubleshooting
 
 **The board shows plain stats with no title (`degraded: no_llm`).**
-The model is unreachable or its replies keep failing validation. Check the
-endpoint and key first; with a local model, see *Choosing a model* — the
+The model is unreachable or its replies keep failing validation. Check
+Settings → AI Providers first (AI turned on, a provider set up, signed in),
+or the separate API key and endpoint if you set one; with a local model, see *Choosing a model* — the
 fallback board is correct, just uncurated.
 
 **A wall of pollen counts and currency rates.**

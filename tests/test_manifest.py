@@ -61,12 +61,22 @@ def test_watchlist_is_capped_at_one_hundred(raw):
     assert raw["settings_schema"]["properties"]["watchlist"]["maxItems"] == MAX_WATCHLIST
 
 
-def test_every_options_id_the_schema_asks_for_is_served(raw):
+def test_every_options_id_the_schema_asks_for_is_served(raw, monkeypatch):
+    from src.ai import plugin_api
     from src.plugins.manifest import collect_options_ids
 
     from plugins.generative_dashboard import GenerativeDashboardPlugin
     from src.plugins.base import OptionsRequest, OptionsUnavailable
 
+    # 'ai_providers' is answered by core, which says OptionsUnavailable while
+    # AI is off or unset -- the same exception the plugin uses to refuse an
+    # unknown id. Give core one provider so the real source answers, and any
+    # OptionsUnavailable left can only mean the plugin refused the id.
+    monkeypatch.setattr(plugin_api, "_providers_block", lambda: {
+        "enabled": True,
+        "providers": [{"id": "p1", "name": "Test", "protocol": "openai",
+                       "default_model": "m1"}],
+    })
     plugin = GenerativeDashboardPlugin(raw)
     plugin.config = {"watchlist": []}
     for options_id in collect_options_ids(raw["settings_schema"]):

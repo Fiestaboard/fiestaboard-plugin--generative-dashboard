@@ -8,6 +8,7 @@ collect_ignore = [
     "__init__.py",
     "catalog.py",
     "charset.py",
+    "connection.py",
     "fallback.py",
     "gate.py",
     "layout.py",

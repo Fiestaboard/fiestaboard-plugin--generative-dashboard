@@ -8,8 +8,9 @@ An AI editor for your split-flap board: it reads every variable your other plugi
 
 ## Overview
 
-Point it at any OpenAI-compatible model and it curates your board the way an
-editor writes for a reader: it knows who is watching (you tell it once), what
+It uses your FiestaBoard AI provider (Settings → AI Providers, the same one
+FiestaBot uses), so there is nothing extra to set up. It curates your board
+the way an editor writes for a reader: it knows who is watching (you tell it once), what
 time it is in your timezone, what has been happening (it keeps its own
 journal), what the rest of your rotation already covers, and what every
 number means. It chooses the form — a grid of stats or a sentence — lays the
@@ -95,9 +96,11 @@ Or borrow just the headline for a corner of another page:
 | Setting | Default | Description |
 |---|---|---|
 | `audience` | — | **The highest-leverage setting.** Who watches this board and what they care about, as a paragraph |
-| `api_base_url` | OpenAI | Any OpenAI-compatible chat completions endpoint |
-| `api_key` | — | Required (any value for local endpoints that skip auth) |
-| `model` | `gpt-4o-mini` | See model notes in the setup guide |
+| `ai_provider` | FiestaBot's default | Which FiestaBoard AI provider composes the board |
+| `ai_model` | the provider's default | Optional model for that provider |
+| `api_key` | — | Optional: use a separate API key. When set it wins, with `api_base_url` and `model` |
+| `api_base_url` | OpenAI | With a separate API key: any OpenAI-compatible chat completions endpoint |
+| `model` | `gpt-4o-mini` | With a separate API key: the model. See model notes in the setup guide |
 | `output_mode` | `auto` | `auto` lets the AI pick grid or prose per moment |
 | `temperature` | `0.3` | Low on purpose — this is layout, not art |
 | `refresh_seconds` | `900` | Re-layout floor; values stay live regardless |
