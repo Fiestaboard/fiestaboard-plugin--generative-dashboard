@@ -68,6 +68,7 @@ core's shared geometry-conformance suite over every supported board.
 | `generative_dashboard.reason` | Why the board last changed, in the model's words |
 | `generative_dashboard.stat_count` | Tiles currently placed |
 | `generative_dashboard.degraded` | Empty when healthy; `no_llm`, `no_data`, `awaiting_board`, `unconfigured` otherwise |
+| `generative_dashboard.error` | Empty when the model last answered; otherwise why it did not (e.g. no model picked, sign-in refused) |
 | `generative_dashboard.generated_at` | When the composition was last generated (local time) |
 | `generative_dashboard.model` | Model that composed the board |
 

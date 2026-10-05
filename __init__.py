@@ -69,9 +69,20 @@ MAX_WATCHLIST = 100
 # A worker older than this is presumed dead — its thread was killed by a
 # reload, or wedged beyond every network timeout — and its slot is reclaimed.
 WORKER_TTL = 600
+# After a failed generation, wait this long before the next try, doubling with
+# each consecutive failure up to refresh_seconds. Without it a cold board (no
+# composition yet) asked the model on every render, and live_data renders
+# constantly.
+RETRY_BASE_SECONDS = 30
 DEFAULT_BOARD_ROWS = 6
 DEFAULT_BOARD_COLS = 22
 OUTPUT_MODES = ("auto", "grid", "prose")
+
+
+def _temperature(config: dict[str, Any]) -> float:
+    """The configured temperature; 0 is a real setting, only a missing one is 0.3."""
+    value = config.get("temperature")
+    return 0.3 if value is None or isinstance(value, bool) else float(value)
 
 
 @dataclass(frozen=True)
@@ -127,6 +138,8 @@ class BoardState:
     last_generated: float | None = None
     outage_index: int = -1
     failures: int = 0
+    # Why the last generation failed, for the ``error`` variable; "" once one succeeds.
+    error: str = ""
     stale: bool = False
     lines: list[str] = field(default_factory=list)
 
@@ -149,6 +162,8 @@ class GenerativeDashboardPlugin(PluginBase):
         self._outage_index = 0
         # The model FiestaBoard's AI last answered with, for the variable.
         self._core_model = ""
+        # Per worker thread: why its generation failed, read back by _run.
+        self._worker = threading.local()
 
     @property
     def plugin_id(self) -> str:
@@ -440,12 +455,18 @@ class GenerativeDashboardPlugin(PluginBase):
                     "it dead and allowing a new one.", key, WORKER_TTL,
                 )
                 del self._inflight[key]
-        if not (state.tiles or state.prose):
-            return True  # cold start: go immediately
         if state.last_generated is None:
-            return True
+            return True  # never tried: go immediately
         interval = float(config.get("refresh_seconds", 300) or 300)
-        return (time.monotonic() - state.last_generated) >= interval
+        if state.failures:
+            # Failing: back off, doubling, so a cold board does not ask the
+            # model on every render.
+            wait = min(RETRY_BASE_SECONDS * 2 ** (state.failures - 1), interval)
+        elif not (state.tiles or state.prose):
+            return True  # cold start: go immediately
+        else:
+            wait = interval
+        return (time.monotonic() - state.last_generated) >= wait
 
     def _compose(
         self,
@@ -544,6 +565,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 "reason": state.reason,
                 "stat_count": stat_count,
                 "degraded": degraded,
+                "error": state.error,
                 "generated_at": state.generated_at,
                 # A separate API key names its model; FiestaBoard's AI names
                 # the one its provider answered with.
@@ -585,13 +607,15 @@ class GenerativeDashboardPlugin(PluginBase):
 
     def _run(self, key, geo, config, watchlist, current, previous, previous_board,
              generation, journal="", current_form="grid") -> None:
+        self._worker.error = ""
         try:
             outcome = self._generate(
                 geo, config, watchlist, current, previous, previous_board, journal,
                 current_form,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Dashboard generation failed")
+            self._worker.error = f"Generation failed: {exc}"
             outcome = None
         finally:
             with self._lock:
@@ -606,6 +630,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 return
             if outcome is None:
                 state.failures += 1
+                # Capped at the variable's declared max_length.
+                state.error = (self._worker.error or "The model did not answer")[:120]
                 state.degraded = "no_llm"
                 # The numbers moved but the composition did not follow, so any
                 # frozen prose is now describing a board that no longer exists.
@@ -621,6 +647,7 @@ class GenerativeDashboardPlugin(PluginBase):
             state.reason = outcome.reason
             state.journal.add(local_now().strftime("%H:%M"), outcome.log)
             state.failures = 0
+            state.error = ""
             state.stale = False
             state.degraded = ""
             state.generated_at = local_now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -661,11 +688,12 @@ class GenerativeDashboardPlugin(PluginBase):
         try:
             client = connection.build_client(
                 config, self,
-                temperature=float(config.get("temperature", 0.3) or 0.3),
+                temperature=_temperature(config),
                 max_tokens=completion_budget(geo),
             )
         except connection.ConnectionUnavailable as exc:
             logger.warning("Dashboard has no model connection: %s", exc)
+            self._worker.error = str(exc)
             return None
         mode = config.get("output_mode", "grid")
         labels = self._labels(config)
@@ -718,6 +746,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 logger.warning(
                     "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
                 )
+                self._worker.error = str(exc)
                 if exc.retryable and attempt == 0:
                     continue
                 return None
@@ -771,6 +800,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 )
             except ValidationError as exc:
                 rejection = str(exc)
+                self._worker.error = f"The model's reply was rejected: {exc}"
                 logger.warning(
                     "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc
                 )
