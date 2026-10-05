@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -277,6 +277,13 @@
         "max_length": 20,
         "group": "meta",
         "example": "no_llm"
+      },
+      "error": {
+        "description": "Empty when the model last answered, otherwise why it did not",
+        "type": "string",
+        "max_length": 120,
+        "group": "meta",
+        "example": "FiestaBoard AI: Pick a model for AI provider 'ChatGPT' in Settings"
       },
       "generated_at": {
         "description": "When the composition was last generated",

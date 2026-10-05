@@ -51,7 +51,9 @@ plugin's settings:
   shows them).
 
 If the provider is turned off, signed out or unreachable, the board falls
-back to plain stats (`degraded: no_llm`) until it is fixed there.
+back to plain stats (`degraded: no_llm`) until it is fixed there, and
+`error` says why. After a failure it waits 30 seconds before asking again,
+doubling with each failure up to the refresh interval.
 
 **A separate API key (optional).** Set **Separate API Key** (`api_key`) to
 call your own endpoint instead. When it is set it wins, together with
@@ -121,6 +123,7 @@ every guarantee is model-independent, but taste is not.
 | `generative_dashboard.headline` | Most important stat right now |
 | `generative_dashboard.reason` | Why the board last changed |
 | `generative_dashboard.degraded` | Empty when healthy |
+| `generative_dashboard.error` | Why the model last failed; empty once it answers |
 | `generative_dashboard.generated_at` | Last composition time (local) |
 | `generative_dashboard.model` | Composing model |
 | `generative_dashboard.stat_count` | Tiles currently placed |
@@ -154,7 +157,8 @@ optional; settings take precedence).
 ## Troubleshooting
 
 **The board shows plain stats with no title (`degraded: no_llm`).**
-The model is unreachable or its replies keep failing validation. Check
+The model is unreachable or its replies keep failing validation; the
+`generative_dashboard.error` variable has the reason. Check
 Settings → AI Providers first (AI turned on, a provider set up, signed in),
 or the separate API key and endpoint if you set one; with a local model, see *Choosing a model* — the
 fallback board is correct, just uncurated.
