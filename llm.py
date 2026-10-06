@@ -13,7 +13,7 @@ from datetime import datetime
 
 import requests
 
-from .charset import ACCENT_COLORS
+from .charset import ACCENT_COLORS, FLAP, Style
 from .layout import Geometry, Tile, column_inner, ledger_cell_width, render_grid
 from .when import describe_now
 
@@ -37,6 +37,21 @@ _CHARSET_RULES = (
     "It has no lowercase, no arrows, no pipes, no asterisks, no brackets, and "
     "no degree sign. Never use them."
 )
+
+
+def _charset_rules(style: Style) -> str:
+    """What text the display draws. A split-flap board keeps the rules it has
+    always had; a richer display is described by FiestaBoard core itself
+    (``self.board.display.ai_brief()``), so this plugin never has to learn a
+    new device."""
+    if (style.color_text or style.mixed_case) and style.brief:
+        return style.brief
+    return _CHARSET_RULES
+
+
+def _sample_label(text: str, style: Style) -> str:
+    """A worked example's label in the case the display draws."""
+    return text.title() if style.mixed_case else text
 
 
 # Roughly what one tile costs in the reply's JSON, and what the rest of it
@@ -444,6 +459,7 @@ def _example_board(
     hue: str,
     samples: tuple[tuple[str, str, str | None], ...],
     use_color: bool,
+    style: Style = FLAP,
 ) -> str:
     """One worked example, drawn by the real renderer at the real geometry.
 
@@ -453,14 +469,16 @@ def _example_board(
     construction the shape it will get.
     """
     tiles = [
-        Tile(label, value, tint if use_color else None)
+        Tile(_sample_label(label, style), value.lower() if style.mixed_case else value, tint if use_color else None)
         for label, value, tint in samples[: max(1, geo.tile_budget)]
     ]
     rendered = [
         line
         for line in render_grid(
-            tiles, geo, banner=banner, use_color=use_color,
-            banner_color=hue if use_color else None, subtitle=subtitle,
+            tiles, geo, banner=_sample_label(banner, style), use_color=use_color,
+            banner_color=hue if use_color else None,
+            subtitle=subtitle.capitalize() if style.mixed_case else subtitle,
+            style=style,
         )
         if line.strip()
     ]
@@ -478,18 +496,25 @@ def _example_board(
     return body
 
 
-def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0) -> str:
+def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0, style: Style = FLAP) -> str:
     if use_color:
         colour_rule = (
             'Set "color" on a tile to show the *level* of that stat: green when '
             "a reading is good or low, yellow or orange as it climbs, red when "
-            "it is bad or high, blue for cold. It renders as a small status "
-            "tile beside the value, like an indicator light — color is data on "
+            "it is bad or high, blue for cold. "
+            + (
+                "It colors the value itself, so 63F reads green when it is mild "
+                "and red when it is hot"
+                if style.color_text
+                else "It renders as a small status tile beside the value, like an indicator light"
+            )
+            + " — color is data on "
             "this board, never decoration. A UV index, an air quality number or "
             "a pollen count all read this way. Leave a stat uncolored when its "
             "level means nothing — a clock, a date and a ticker have no level. "
-            "Color is part of this board's voice — a wall of plain flaps "
-            "reads as unfinished. Give EVERY stat with a meaningful level a "
+            "Color is part of this board's voice — a wall of plain "
+            + ("text" if style.color_text else "flaps")
+            + " reads as unfinished. Give EVERY stat with a meaningful level a "
             "color RULE (see below): most lights will sit green, and that "
             "calm is itself information — the one yellow among the greens is "
             "what makes a board glanceable. Only the truly level-less stats "
@@ -512,10 +537,10 @@ def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0) -> str:
         colour_rule = ""
 
     page_example = _example_board(
-        geo, "SAN FRANCISCO", "LIGHT RAIN, 8 AM", "blue", _PAGE_SAMPLE, use_color
+        geo, "SAN FRANCISCO", "LIGHT RAIN, 8 AM", "blue", _PAGE_SAMPLE, use_color, style
     )
     alert_example = _example_board(
-        geo, "AIR QUALITY", "KEEP WINDOWS SHUT", "red", _ALERT_SAMPLE, use_color
+        geo, "AIR QUALITY", "KEEP WINDOWS SHUT", "red", _ALERT_SAMPLE, use_color, style
     )
 
     # The board's capacity is only half the budget: the other half is how
@@ -539,7 +564,7 @@ def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0) -> str:
         )
 
     return (
-        "You lay out a stats dashboard for a split-flap board.\n\n"
+        f"You lay out a stats dashboard for a {style.kind}.\n\n"
         f"You may place at most {slots} tiles, arranged in "
         f"{geo.tile_columns} column(s) of {geo.tile_width} cells, reading left "
         "to right then down. The most important stat goes first.\n\n"
@@ -612,7 +637,7 @@ def _grid_rules(geo: Geometry, use_color: bool, supply: int = 0) -> str:
         "tile(s) of budget.\n\n"
         "Keep stats that have not changed in the positions they already "
         "occupy. Moving things for no reason makes the board noisy.\n\n"
-        f"{_CHARSET_RULES}\n\n"
+        f"{_charset_rules(style)}\n\n"
     )
 
 
@@ -643,11 +668,12 @@ def build_grid_prompt(
     audience: str = "",
     groups: list[dict] | None = None,
     rotation: list[str] | None = None,
+    style: Style = FLAP,
 ) -> tuple[str, str]:
     """System and user prompts for tile-based composition."""
     system = (
         _audience_block(audience)
-        + _grid_rules(geo, use_color, _supply(refs, current))
+        + _grid_rules(geo, use_color, _supply(refs, current), style)
         + _THINKING_RULE
         + "Reply with JSON only:\n"
         + _grid_schema(use_color)
@@ -670,9 +696,9 @@ def _prose_schema() -> str:
     )
 
 
-def _prose_rules(geo: Geometry) -> str:
+def _prose_rules(geo: Geometry, style: Style = FLAP) -> str:
     return (
-        "You write a very short status summary for a split-flap board.\n\n"
+        f"You write a very short status summary for a {style.kind}.\n\n"
         f"Aim for roughly {int(geo.prose_budget * 0.8)} characters and never "
         f"exceed {geo.prose_budget}. It wraps at {geo.cols} columns across "
         f"{geo.rows} rows. Two or three short sentences fill a board well; a "
@@ -723,7 +749,7 @@ def _prose_rules(geo: Geometry) -> str:
         "do not round, do not abbreviate, and do not invent any number. If a "
         "value reads 94,120 then write 94,120. Never state a percentage or a "
         "difference that was not given to you.\n\n"
-        f"{_CHARSET_RULES}\n\n"
+        f"{_charset_rules(style)}\n\n"
         'Set "banner_color" to frame your headline as a colored title above '
         "the text — pick the hue of the news: red for bad, orange for "
         "warnings, green for good, blue for calm nights, yellow for bright "
@@ -747,11 +773,12 @@ def build_prose_prompt(
     audience: str = "",
     groups: list[dict] | None = None,
     rotation: list[str] | None = None,
+    style: Style = FLAP,
 ) -> tuple[str, str]:
     """System and user prompts for sentence composition."""
     system = (
         _audience_block(audience)
-        + _prose_rules(geo)
+        + _prose_rules(geo, style)
         + _THINKING_RULE
         + "Reply with JSON only:\n"
         + _prose_schema()
@@ -783,6 +810,7 @@ def build_auto_prompt(
     groups: list[dict] | None = None,
     rotation: list[str] | None = None,
     current_form: str = "grid",
+    style: Style = FLAP,
 ) -> tuple[str, str]:
     """One prompt, two possible shapes: the model chooses the board's form.
 
@@ -793,7 +821,7 @@ def build_auto_prompt(
     """
     system = (
         _audience_block(audience)
-        + "You compose this split-flap board, and you choose its FORM first.\n\n"
+        + f"You compose this {style.kind}, and you choose its FORM first.\n\n"
         + "A GRID suits a moment with several stats each worth a glance. "
         "PROSE suits a moment with one story that needs a sentence — an "
         "alert, a milestone, a change worth explaining.\n\n"
@@ -801,9 +829,9 @@ def build_auto_prompt(
         "this board can do; keep the current form unless the moment "
         "genuinely demands the other. Say why in your thinking either way.\n\n"
         + "IF YOU CHOOSE GRID, these rules apply:\n\n"
-        + _grid_rules(geo, use_color, _supply(refs, current))
+        + _grid_rules(geo, use_color, _supply(refs, current), style)
         + "\nIF YOU CHOOSE PROSE, these rules apply:\n\n"
-        + _prose_rules(geo)
+        + _prose_rules(geo, style)
         + "\n"
         + _THINKING_RULE
         + 'Reply with JSON only. Put "thinking" first and "format" second '
