@@ -122,12 +122,37 @@ class DashboardLLM:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+            body = response.json()
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
+            # Kept for the rejection log: how the reply ended and what it cost.
+            self.last_text = content if isinstance(content, str) else ""
+            self.last_finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+            usage = body.get("usage") if isinstance(body, dict) else None
+            self.last_usage = usage if isinstance(usage, dict) else {}
         except requests.RequestException as exc:
             raise LLMError(f"Request failed: {exc}") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(f"Malformed response: {exc}", retryable=True) from exc
         return parse_reply(content)
+
+
+def reply_summary(client: object, payload: object) -> str:
+    """One log line on a reply: its keys, why it stopped, what it cost, how it began."""
+    parts = []
+    if isinstance(payload, dict):
+        parts.append("keys=" + (",".join(sorted(str(k) for k in payload)) or "(none)"))
+    finish = getattr(client, "last_finish_reason", None)
+    if finish:
+        parts.append(f"finish={finish}")
+    usage = getattr(client, "last_usage", None) or {}
+    for key in ("prompt_tokens", "completion_tokens"):
+        if usage.get(key) is not None:
+            parts.append(f"{key}={usage[key]}")
+    text = " ".join(str(getattr(client, "last_text", "") or "").split())
+    if text:
+        parts.append("start=" + repr(text[:240]))
+    return " ".join(parts)
 
 
 def parse_reply(content: str) -> dict:
@@ -199,7 +224,13 @@ class CoreLLM:
             # fixes none of those.
             raise LLMError(f"FiestaBoard AI: {exc}") from exc
         self.model = str(getattr(answer, "model", "") or self.model)
-        return parse_reply(str(getattr(answer, "text", answer)))
+        text = str(getattr(answer, "text", answer))
+        # Kept for the rejection log. Core does not report a finish reason.
+        self.last_text = text
+        self.last_finish_reason = None
+        usage = getattr(answer, "usage", None)
+        self.last_usage = usage if isinstance(usage, dict) else {}
+        return parse_reply(text)
 
 
 _EXPRESSION_REFERENCE_CACHE: str | None = None
