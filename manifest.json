@@ -1,7 +1,7 @@
 {
   "id": "generative_dashboard",
   "name": "Generative Dashboard",
-  "version": "1.28.1",
+  "version": "1.29.0",
   "description": "Composes a full-board dashboard from variables you pick across your other plugins, using an LLM to surface whatever matters right now.",
   "author": "FiestaBoard Team",
   "repository": "https://github.com/Fiestaboard/fiestaboard-plugin--generative-dashboard",
@@ -303,9 +303,13 @@
     "arrays": {
       "rows": {
         "label_field": "text",
-        "item_fields": [
-          "text"
-        ]
+        "item_fields": {
+          "text": {
+            "description": "One board row of the composed dashboard, as board markup (colour spans on displays that draw them)",
+            "type": "string",
+            "format": "markup"
+          }
+        }
       }
     }
   },

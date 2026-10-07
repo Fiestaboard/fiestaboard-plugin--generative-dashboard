@@ -34,7 +34,7 @@ from src.plugins.base import (
 from . import catalog, complog, connection, fallback, gate
 from .journal import Journal
 from .when import local_now
-from .charset import sanitize
+from .charset import FLAP, Style, sanitize, style_for
 from .layout import (
     Geometry,
     Tile,
@@ -275,9 +275,21 @@ class GenerativeDashboardPlugin(PluginBase):
         board = self.board
         if board is None:
             return "_default"
-        if board.device_type == "note_array":
-            return f"note_array:{board.cols}x{board.rows}"
-        return board.device_type
+        if board.device_type in ("flagship", "note"):
+            key = board.device_type
+        else:
+            # Panels and note arrays come in every size: a 16x10 LED panel and
+            # a 22x9 TV panel kept one composition between them, each
+            # overwriting the other's.
+            key = f"{board.device_type}:{board.cols}x{board.rows}"
+        display = getattr(board, "display", None)
+        display_key = getattr(display, "key", None)
+        return f"{key}|{display_key}" if display_key else key
+
+    def _style(self) -> Style:
+        """How text reaches this board's display (split-flap when core does not say)."""
+        board = self.board
+        return style_for(getattr(board, "display", None)) if board is not None else FLAP
 
     def _watchlist(self, config: dict[str, Any]) -> list[str]:
         """The candidate pool: what the user chose, or everything if they did not.
@@ -303,22 +315,23 @@ class GenerativeDashboardPlugin(PluginBase):
         # column's width is not the limit either.
         return catalog.eligible_refs(self.plugin_id, self._geometry().cols)
 
-    def _labels(self, config: dict[str, Any]) -> dict[str, str]:
+    def _labels(self, config: dict[str, Any], style: Style | None = None) -> dict[str, str]:
         raw = config.get("labels") or {}
         if not isinstance(raw, dict):
             return {}
-        return {str(k): sanitize(str(v)) for k, v in raw.items()}
+        style = style if style is not None else self._style()
+        return {str(k): sanitize(str(v), style) for k, v in raw.items()}
 
-    def _render_outcome(self, outcome, geo, config, values) -> list[str]:
+    def _render_outcome(self, outcome, geo, config, values, style: Style = FLAP) -> list[str]:
         """What this composition looks like on its board, for the log."""
         try:
             if outcome.prose:
                 live_text = render_prose(outcome.prose, values)
                 if outcome.headline and outcome.banner_color:
                     title = render_banner(outcome.headline, outcome.banner_color,
-                                          geo.cols, weight=2)
-                    return ([title] + wrap_center(live_text, geo.rows - 1, geo.cols))[: geo.rows]
-                return wrap_center(live_text, geo.rows, geo.cols)
+                                          geo.cols, weight=2, style=style)
+                    return ([title] + wrap_center(live_text, geo.rows - 1, geo.cols, style))[: geo.rows]
+                return wrap_center(live_text, geo.rows, geo.cols, style)
             tiles = [
                 Tile(label=t.label,
                      value=apply_prefix(apply_suffix(values.get(t.ref, ""), t.suffix), t.prefix),
@@ -328,7 +341,7 @@ class GenerativeDashboardPlugin(PluginBase):
             return render_grid(tiles, geo, banner=outcome.banner,
                                banner_color=outcome.banner_color,
                                subtitle=outcome.subtitle, layout=outcome.layout,
-                               use_color=bool(config.get("use_color", True)))
+                               use_color=bool(config.get("use_color", True)), style=style)
         except Exception:
             return []
 
@@ -428,7 +441,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 self._spawn(
                     key, geo, config, watchlist, dict(values), dict(state.previous),
                     list(state.lines), self._config_generation, state.journal.render(),
-                    "prose" if state.prose else "grid",
+                    "prose" if state.prose else "grid", self._style(),
                 )
 
         lines, degraded, stat_count = self._compose(state, geo, config, values, watchlist)
@@ -479,6 +492,7 @@ class GenerativeDashboardPlugin(PluginBase):
     ) -> tuple[list[str], str, int]:
         """Build the lines to show, using live values wherever possible."""
         use_color = bool(config.get("use_color", True))
+        style = self._style()
 
         # Read the worker-owned fields as one consistent snapshot: _run swaps
         # them together, and rendering half of an old composition against half
@@ -499,10 +513,10 @@ class GenerativeDashboardPlugin(PluginBase):
                 headline, prose_hue = state.headline, state.banner_color
             live_text = render_prose(prose, values)
             if headline and prose_hue and use_color:
-                title = render_banner(headline, prose_hue, geo.cols, weight=2)
-                body = wrap_center(live_text, geo.rows - 1, geo.cols)
+                title = render_banner(headline, prose_hue, geo.cols, weight=2, style=style)
+                body = wrap_center(live_text, geo.rows - 1, geo.cols, style)
                 return ([title] + body)[: geo.rows], degraded, 0
-            return wrap_center(live_text, geo.rows, geo.cols), degraded, 0
+            return wrap_center(live_text, geo.rows, geo.cols, style), degraded, 0
 
         if specs:
             tiles = [
@@ -520,6 +534,7 @@ class GenerativeDashboardPlugin(PluginBase):
                 lines = render_grid(
                     tiles, geo, banner=banner, use_color=use_color,
                     banner_color=banner_hue, subtitle=subtitle, layout=layout,
+                    style=style,
                 )
                 return lines, degraded, placed_count(tiles, geo, banner, subtitle, layout)
 
@@ -539,7 +554,7 @@ class GenerativeDashboardPlugin(PluginBase):
         # Nothing has been asked of the model yet when no board has rendered
         # this plugin; calling that an LLM failure reads as an outage.
         reason = "no_llm" if self.board is not None else "awaiting_board"
-        lines = render_grid(tiles, geo, use_color=False)
+        lines = render_grid(tiles, geo, use_color=False, style=style)
         with self._lock:
             composing = self._state_key() in self._inflight and not (
                 state.tiles or state.prose
@@ -592,7 +607,7 @@ class GenerativeDashboardPlugin(PluginBase):
     # -- generation, off the render path ----------------------------------
 
     def _spawn(self, key, geo, config, watchlist, current, previous, previous_board,
-               generation, journal="", current_form="grid") -> None:
+               generation, journal="", current_form="grid", style: Style = FLAP) -> None:
         with self._lock:
             started = self._inflight.get(key)
             if started is not None and time.monotonic() - started < WORKER_TTL:
@@ -601,18 +616,18 @@ class GenerativeDashboardPlugin(PluginBase):
         threading.Thread(
             target=self._run,
             args=(key, geo, config, watchlist, current, previous, previous_board,
-                  generation, journal, current_form),
+                  generation, journal, current_form, style),
             name=f"generative-dashboard-{key}",
             daemon=True,
         ).start()
 
     def _run(self, key, geo, config, watchlist, current, previous, previous_board,
-             generation, journal="", current_form="grid") -> None:
+             generation, journal="", current_form="grid", style: Style = FLAP) -> None:
         self._worker.error = ""
         try:
             outcome = self._generate(
                 geo, config, watchlist, current, previous, previous_board, journal,
-                current_form,
+                current_form, style,
             )
         except Exception as exc:
             logger.exception("Dashboard generation failed")
@@ -652,7 +667,7 @@ class GenerativeDashboardPlugin(PluginBase):
             state.stale = False
             state.degraded = ""
             state.generated_at = local_now().strftime("%Y-%m-%dT%H:%M:%S")
-            lines = self._render_outcome(outcome, geo, config, current)
+            lines = self._render_outcome(outcome, geo, config, current, style)
             complog.record({
                 "at": state.generated_at,
                 "key": key,
@@ -684,7 +699,7 @@ class GenerativeDashboardPlugin(PluginBase):
             )
 
     def _generate(self, geo, config, watchlist, current, previous, previous_board,
-                  journal="", current_form="grid"):
+                  journal="", current_form="grid", style: Style = FLAP):
         """One generation attempt, with a single stricter retry."""
         try:
             client = connection.build_client(
@@ -697,7 +712,7 @@ class GenerativeDashboardPlugin(PluginBase):
             self._worker.error = str(exc)
             return None
         mode = config.get("output_mode", "grid")
-        labels = self._labels(config)
+        labels = self._labels(config, style)
         notes = self._notes(config)
         descriptions = catalog.variable_descriptions(watchlist)
         groups = catalog.prompt_groups(watchlist)
@@ -722,6 +737,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     now=local_now(), journal=journal, descriptions=descriptions,
                     audience=audience, groups=groups, rotation=rotation,
                     current_form=current_form,
+                    style=style,
                 )
             elif mode == "prose":
                 system, user = build_prose_prompt(
@@ -730,6 +746,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     extra_instructions=extra + suffix, now=local_now(), journal=journal,
                     descriptions=descriptions, audience=audience, groups=groups,
                     rotation=rotation,
+                    style=style,
                 )
             else:
                 system, user = build_grid_prompt(
@@ -738,6 +755,7 @@ class GenerativeDashboardPlugin(PluginBase):
                     use_color=use_color, extra_instructions=extra + suffix,
                     now=local_now(), journal=journal, descriptions=descriptions,
                     audience=audience, groups=groups, rotation=rotation,
+                    style=style,
                 )
             try:
                 payload = client.complete(system, user)

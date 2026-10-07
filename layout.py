@@ -7,7 +7,7 @@ between cycles and width violations impossible.
 
 from dataclasses import dataclass
 
-from .charset import cell_width, sanitize, truncate
+from .charset import FLAP, Style, cell_width, sanitize, truncate
 
 # Minimum sensible width for a label/value pair. Below this a second column
 # would leave no room for either half.
@@ -86,34 +86,45 @@ def geometry(rows: int, cols: int) -> Geometry:
     )
 
 
-def _render_tile(tile: Tile, width: int, use_color: bool, reserve_dot: bool = False) -> str:
+def _render_tile(
+    tile: Tile, width: int, use_color: bool, reserve_dot: bool = False, style: Style = FLAP
+) -> str:
     """Render one tile into exactly *width* cells.
 
-    Color is data, not label decoration: it renders as a status dot after the
-    value, the way an indicator light sits beside a reading. When any tile in
-    the grid is colored, *every* tile reserves the dot cell — presence of
-    color must never change which column the numbers sit in.
+    Color is data, not label decoration. On a split-flap board it renders as
+    a status dot after the value, the way an indicator light sits beside a
+    reading; when any tile in the grid is colored, *every* tile reserves the
+    dot cell — presence of color must never change which column the numbers
+    sit in. On a display that draws coloured text the value itself takes the
+    colour, so no cell is spent on a dot at all.
     """
     dot = "{" + tile.color.lower() + "}" if (use_color and tile.color and reserve_dot) else ""
 
     inner = width - (1 if reserve_dot else 0)
-    value = truncate(sanitize(tile.value), inner)
+    value = truncate(sanitize(tile.value, style), inner)
     # The label yields first: a shortened name beats a shortened number.
-    label = truncate(sanitize(tile.label), max(0, inner - cell_width(value) - 1))
+    label = truncate(sanitize(tile.label, style), max(0, inner - cell_width(value) - 1))
     gap = inner - cell_width(label) - cell_width(value)
+    if style.color_text and use_color and tile.color and value:
+        # Widths were measured on the plain text; the span costs no cells.
+        value = "{" + tile.color.lower() + ":" + value + "}"
     return label + (" " * max(0, gap)) + value + (dot or (" " if reserve_dot else ""))
 
 
-def render_banner(text: str, color: str | None, cols: int, weight: int = 2) -> str:
+def render_banner(text: str, color: str | None, cols: int, weight: int = 2, style: Style = FLAP) -> str:
     """Centre a title, framed by color tiles when there is room for them.
 
     A double frame each side is what the best handmade pages use — it gives
     the title weight. Falls back to a single frame, then to plain text: if
-    framing would cost a word, the words win.
+    framing would cost a word, the words win. On a display that draws
+    coloured text the title is simply set in its colour, unframed.
     """
-    body = truncate(sanitize(text), cols)
+    body = truncate(sanitize(text, style), cols)
     if not body:
         return ""
+    if style.color_text:
+        pad = (cols - cell_width(body)) // 2
+        return (" " * pad) + ("{" + color.lower() + ":" + body + "}" if color else body)
     if color:
         marker = "{" + color.lower() + "}"
         for n in range(max(1, weight), 0, -1):
@@ -240,26 +251,28 @@ def render_grid(
     banner_color: str | None = None,
     subtitle: str = "",
     layout: str = "auto",
+    style: Style = FLAP,
 ) -> list[str]:
     """Place *tiles* into the board grid, returning exactly ``geo.rows`` lines."""
     lines: list[str] = []
     hue = banner_color if use_color else None
-    banner_text = render_banner(banner, hue, geo.cols, weight=2)
+    banner_text = render_banner(banner, hue, geo.cols, weight=2, style=style)
     if banner_text:
         lines.append(banner_text)
         # A subtitle only makes sense beneath a title; framed lighter, the way
-        # the reference page frames its date line under the city name.
-        subtitle_text = render_banner(subtitle, hue, geo.cols, weight=1)
+        # the reference page frames its date line under the city name. On a
+        # coloured-text display it is plain: the title carries the colour.
+        subtitle_text = render_banner(subtitle, None if style.color_text else hue, geo.cols, weight=1, style=style)
         if subtitle_text:
             lines.append(subtitle_text)
 
     grid_rows = geo.rows - len(lines)
     packed = _pack(tiles, geo, layout)[: max(0, grid_rows)]
-    reserve_dot = use_color and any(t.color for _, row in packed for t in row)
+    reserve_dot = use_color and not style.color_text and any(t.color for _, row in packed for t in row)
 
     for span, row in packed:
         cells = [
-            _render_tile(tile, width, use_color, reserve_dot)
+            _render_tile(tile, width, use_color, reserve_dot, style)
             for tile, width in zip(row, _cell_widths(span, len(row), geo), strict=True)
         ]
         lines.append(" ".join(cells).rstrip())
@@ -295,9 +308,9 @@ def fits(text: str, rows: int, cols: int) -> bool:
     return len(_wrap(sanitize(text), cols)) <= rows
 
 
-def wrap_center(text: str, rows: int, cols: int) -> list[str]:
+def wrap_center(text: str, rows: int, cols: int, style: Style = FLAP) -> list[str]:
     """Wrap *text* and centre the block, returning exactly *rows* lines."""
-    wrapped = _wrap(sanitize(text), cols)[:rows]
+    wrapped = _wrap(sanitize(text, style), cols)[:rows]
     top = (rows - len(wrapped)) // 2
     out = [""] * top + [line.center(cols).rstrip() for line in wrapped]
     return (out + [""] * rows)[:rows]
