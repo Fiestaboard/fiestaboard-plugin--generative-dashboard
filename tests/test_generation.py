@@ -357,3 +357,35 @@ def test_hydration_seeds_last_known_values_for_slow_plugins(plugin, tmp_path, mo
     joined = " ".join(lines)
     assert "168" in joined  # last-known value carried the board
     assert "GRASS" not in joined
+
+
+def _reply_ending(payload, finish_reason, completion_tokens):
+    """A 200 response that says how the model stopped and what it spent."""
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "choices": [{"message": {"content": json.dumps(payload)}, "finish_reason": finish_reason}],
+        "usage": {"prompt_tokens": 900, "completion_tokens": completion_tokens},
+    }
+    return response
+
+
+def test_a_rejected_reply_is_logged_with_how_it_ended(plugin, caplog):
+    """A rejection names the reply's keys, why it stopped, what it cost and
+    how it began, so a cut-off or misshapen answer can be told apart from
+    the log alone (a 16x10 LED panel's replies were rejected for hours as
+    "no 'tiles' list" with nothing to show what the model sent)."""
+    import logging
+
+    payload = {"thinking": "it is evening on a small panel", "layout": "list"}
+    with caplog.at_level(logging.WARNING), patch(
+        "requests.post", return_value=_reply_ending(payload, "length", 1024)
+    ):
+        assert _generate(plugin) is None
+    rejected = [r.getMessage() for r in caplog.records if "rejected" in r.getMessage()]
+    assert rejected, "no rejection was logged"
+    line = rejected[0]
+    assert "finish=length" in line
+    assert "keys=layout,thinking" in line
+    assert "completion_tokens=1024" in line
+    assert "it is evening on a small panel" in line

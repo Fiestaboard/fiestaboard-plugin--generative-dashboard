@@ -50,6 +50,7 @@ from .llm import (
     build_grid_prompt,
     build_prose_prompt,
     completion_budget,
+    reply_summary,
 )
 from .validation import (
     ValidationError,
@@ -744,7 +745,8 @@ class GenerativeDashboardPlugin(PluginBase):
                     self._core_model = client.model
             except LLMError as exc:
                 logger.warning(
-                    "Dashboard LLM call failed (attempt %d/2): %s", attempt + 1, exc
+                    "Dashboard LLM call failed (attempt %d/2): %s [%s]",
+                    attempt + 1, exc, reply_summary(client, None),
                 )
                 self._worker.error = str(exc)
                 if exc.retryable and attempt == 0:
@@ -802,7 +804,8 @@ class GenerativeDashboardPlugin(PluginBase):
                 rejection = str(exc)
                 self._worker.error = f"The model's reply was rejected: {exc}"
                 logger.warning(
-                    "Dashboard response rejected (attempt %d/2): %s", attempt + 1, exc
+                    "Dashboard response rejected (attempt %d/2): %s [%s]",
+                    attempt + 1, exc, reply_summary(client, payload),
                 )
 
         return None
